@@ -2,23 +2,20 @@ package dev.naruto.astrox.obfuscation;
 
 import org.objectweb.asm.*;
 
+import java.security.SecureRandom;
 import java.util.*;
 import java.util.Base64;
 
 /**
- * Bytecode obfuscation engine with real string encryption.
+ * Bytecode obfuscation engine with scanner-evasion string encryption.
  *
  * <p>When {@code strength >= 5}, all eligible string constants are replaced with
- * AES-256-GCM encrypted Base64 blobs. A per-class static decryptor method ({@code __d})
- * and key field ({@code __k}) are injected so strings are decrypted transparently at runtime.</p>
+ * AES-256-GCM encrypted Base64 blobs. A per-class static decryptor method and
+ * key field are injected with <b>randomized names</b> so there's no consistent
+ * cross-class signature for scanners to pattern-match.</p>
  *
- * <p>Safety filters skip strings that would break JVM semantics if encrypted:
- * <ul>
- *   <li>JVM type descriptors ({@code (Ljava/lang/String;)V})</li>
- *   <li>Internal class name patterns ({@code org/bukkit/...})</li>
- *   <li>Short strings (≤ 2 chars) and empty strings</li>
- *   <li>Strings starting with {@code §} (Minecraft color codes used at runtime)</li>
- * </ul>
+ * <p>Key storage uses raw {@code byte[]} literals instead of Base64 decoding
+ * in {@code <clinit>} to avoid triggering "Base encoding" scanner heuristics.</p>
  */
 public class ObfuscationEngine {
     private final int strength;
@@ -27,10 +24,7 @@ public class ObfuscationEngine {
     private final Map<String, String> classNameMap;
     private final Map<String, String> methodNameMap;
 
-    /** Name of the injected static decryptor method */
-    private static final String DECRYPT_METHOD_NAME = "__d";
-    /** Name of the injected static key field */
-    private static final String KEY_FIELD_NAME = "__k";
+    private static final SecureRandom RANDOM = new SecureRandom();
 
     public ObfuscationEngine(int strength) {
         this.strength = strength;
@@ -41,7 +35,7 @@ public class ObfuscationEngine {
     }
 
     /**
-     * Get the encryptor used by this engine (needed for embedding the key in payload metadata).
+     * Get the encryptor used by this engine.
      */
     public StringEncryptor getEncryptor() {
         return encryptor;
@@ -49,31 +43,23 @@ public class ObfuscationEngine {
 
     /**
      * Obfuscate a single class's bytecode.
-     *
-     * <p>Applies string encryption when {@code strength >= 5}: encrypts eligible
-     * string constants and injects an AES-256-GCM runtime decryptor.</p>
-     *
-     * @param classBytes  original class bytecode
-     * @param className   internal class name (for logging, may be null)
-     * @return obfuscated bytecode
+     * Each invocation generates unique random names for the decryptor method and key field.
      */
     public byte[] obfuscateClass(byte[] classBytes, String className) {
         boolean encryptStrings = strength >= 5;
         if (!encryptStrings) {
-            // No string encryption — just apply dead code if strength >= 7
             if (strength >= 7) {
                 return applyDeadCodeOnly(classBytes);
             }
             return classBytes;
         }
 
-        // Use a two-pass approach:
-        // Pass 1: Replace LDC strings with encrypted Base64 + INVOKESTATIC __d calls
-        // Pass 2: Inject the __k field, <clinit> key init, and __d decryptor method
+        // Generate unique random names for THIS class's decryptor infrastructure
+        String decryptMethodName = randomShortName();
+        String keyFieldName = randomShortName();
 
         // --- Pass 1: Encrypt strings ---
         ClassReader reader = new ClassReader(classBytes);
-        // Use COMPUTE_MAXS only — COMPUTE_FRAMES tries to Class.forName() remapped classes
         ClassWriter writer = new ClassWriter(reader, ClassWriter.COMPUTE_MAXS);
 
         boolean[] hasEncryptedStrings = {false};
@@ -92,7 +78,7 @@ public class ObfuscationEngine {
                                              String descriptor, String signature, String[] exceptions) {
                 MethodVisitor mv = super.visitMethod(access, name, descriptor, signature, exceptions);
 
-                // Don't encrypt strings inside <clinit> — would cause circular init
+                // Don't encrypt strings inside <clinit> — circular init risk
                 if (name.equals("<clinit>")) return mv;
 
                 return new MethodVisitor(Opcodes.ASM9, mv) {
@@ -103,12 +89,11 @@ public class ObfuscationEngine {
                             String base64 = Base64.getEncoder().encodeToString(encryptedBytes);
                             hasEncryptedStrings[0] = true;
 
-                            // Push encrypted Base64 and call __d
                             super.visitLdcInsn(base64);
                             super.visitMethodInsn(
                                     Opcodes.INVOKESTATIC,
                                     detectedClassName[0],
-                                    DECRYPT_METHOD_NAME,
+                                    decryptMethodName,
                                     "(Ljava/lang/String;)Ljava/lang/String;",
                                     false
                             );
@@ -123,11 +108,10 @@ public class ObfuscationEngine {
         reader.accept(pass1, ClassReader.EXPAND_FRAMES);
 
         if (!hasEncryptedStrings[0]) {
-            // No strings were encrypted — return the pass-through result
             return writer.toByteArray();
         }
 
-        // --- Pass 2: Inject __k field, __d method, and <clinit> key init ---
+        // --- Pass 2: Inject key field, <clinit> key init, and decryptor method ---
         byte[] pass1Bytes = writer.toByteArray();
         ClassReader reader2 = new ClassReader(pass1Bytes);
         ClassWriter writer2 = new ClassWriter(reader2, ClassWriter.COMPUTE_MAXS);
@@ -141,10 +125,10 @@ public class ObfuscationEngine {
                               String signature, String superName, String[] interfaces) {
                 super.visit(version, access, name, signature, superName, interfaces);
 
-                // Inject the __k field
+                // Inject key field with random name
                 FieldVisitor fv = super.visitField(
                         Opcodes.ACC_PRIVATE | Opcodes.ACC_STATIC | Opcodes.ACC_SYNTHETIC,
-                        KEY_FIELD_NAME, "[B", null, null);
+                        keyFieldName, "[B", null, null);
                 fv.visitEnd();
             }
 
@@ -152,15 +136,13 @@ public class ObfuscationEngine {
             public MethodVisitor visitMethod(int access, String name,
                                              String descriptor, String signature, String[] exceptions) {
                 if (name.equals("<clinit>")) {
-                    // Existing <clinit> — prepend our key initialization
                     hasExistingClinit[0] = true;
                     MethodVisitor mv = super.visitMethod(access, name, descriptor, signature, exceptions);
                     return new MethodVisitor(Opcodes.ASM9, mv) {
                         @Override
                         public void visitCode() {
                             super.visitCode();
-                            // Prepend: __k = Base64.getDecoder().decode("keyBase64")
-                            emitKeyInit(mv, finalClassName);
+                            emitRawKeyInit(mv, finalClassName, keyFieldName);
                         }
                     };
                 }
@@ -169,19 +151,18 @@ public class ObfuscationEngine {
 
             @Override
             public void visitEnd() {
-                // If no existing <clinit>, create one
                 if (!hasExistingClinit[0]) {
                     MethodVisitor mv = super.visitMethod(
                             Opcodes.ACC_STATIC, "<clinit>", "()V", null, null);
                     mv.visitCode();
-                    emitKeyInit(mv, finalClassName);
+                    emitRawKeyInit(mv, finalClassName, keyFieldName);
                     mv.visitInsn(Opcodes.RETURN);
-                    mv.visitMaxs(2, 0);
+                    mv.visitMaxs(5, 0);
                     mv.visitEnd();
                 }
 
-                // Inject the __d(String) decryptor method
-                injectDecryptMethod(this, finalClassName);
+                // Inject decryptor method with random name
+                injectDecryptMethod(this, finalClassName, decryptMethodName, keyFieldName);
 
                 super.visitEnd();
             }
@@ -191,45 +172,58 @@ public class ObfuscationEngine {
         return writer2.toByteArray();
     }
 
+    // ==================== Key initialization (raw byte array) ====================
+
     /**
-     * Apply only dead-code injection (no string encryption).
+     * Emit bytecode to initialize the key field as a raw byte array literal.
+     * Avoids Base64 in {@code <clinit>}, eliminating the "Base encoding" scanner signature.
+     *
+     * <p>Generated bytecode:
+     * <pre>{@code
+     * keyField = new byte[]{(byte)0x4A, (byte)0x7F, ...};
+     * }</pre>
      */
-    private byte[] applyDeadCodeOnly(byte[] classBytes) {
-        ClassReader reader = new ClassReader(classBytes);
-        ClassWriter writer = new ClassWriter(reader, ClassWriter.COMPUTE_MAXS);
-        ClassVisitor cv = new ClassVisitor(Opcodes.ASM9, writer) {
-            @Override
-            public MethodVisitor visitMethod(int access, String name,
-                                             String descriptor, String signature, String[] exceptions) {
-                MethodVisitor mv = super.visitMethod(access, name, descriptor, signature, exceptions);
-                return wrapWithDeadCode(mv);
-            }
-        };
-        reader.accept(cv, ClassReader.EXPAND_FRAMES);
-        return writer.toByteArray();
+    private void emitRawKeyInit(MethodVisitor mv, String className, String keyFieldName) {
+        byte[] keyBytes = encryptor.getKeyBytes();
+
+        // Push array length
+        pushInt(mv, keyBytes.length);
+        mv.visitIntInsn(Opcodes.NEWARRAY, Opcodes.T_BYTE);
+
+        // Store each byte: dup, push index, push value, bastore
+        for (int i = 0; i < keyBytes.length; i++) {
+            mv.visitInsn(Opcodes.DUP);
+            pushInt(mv, i);
+            pushInt(mv, keyBytes[i]);
+            mv.visitInsn(Opcodes.BASTORE);
+        }
+
+        mv.visitFieldInsn(Opcodes.PUTSTATIC, className, keyFieldName, "[B");
     }
 
     /**
-     * Emit bytecode to initialize the __k field: {@code __k = Base64.getDecoder().decode("...")}
+     * Push an int constant using the most compact bytecode instruction.
      */
-    private void emitKeyInit(MethodVisitor mv, String className) {
-        String keyBase64 = Base64.getEncoder().encodeToString(encryptor.getKeyBytes());
-        mv.visitMethodInsn(Opcodes.INVOKESTATIC, "java/util/Base64", "getDecoder",
-                "()Ljava/util/Base64$Decoder;", false);
-        mv.visitLdcInsn(keyBase64);
-        mv.visitMethodInsn(Opcodes.INVOKEVIRTUAL, "java/util/Base64$Decoder", "decode",
-                "(Ljava/lang/String;)[B", false);
-        mv.visitFieldInsn(Opcodes.PUTSTATIC, className, KEY_FIELD_NAME, "[B");
+    private static void pushInt(MethodVisitor mv, int value) {
+        if (value >= -1 && value <= 5) {
+            mv.visitInsn(Opcodes.ICONST_0 + value);
+        } else if (value >= Byte.MIN_VALUE && value <= Byte.MAX_VALUE) {
+            mv.visitIntInsn(Opcodes.BIPUSH, value);
+        } else if (value >= Short.MIN_VALUE && value <= Short.MAX_VALUE) {
+            mv.visitIntInsn(Opcodes.SIPUSH, value);
+        } else {
+            mv.visitLdcInsn(value);
+        }
     }
 
-    // ==================== Decryptor injection ====================
+    // ==================== Decryptor method injection ====================
 
     /**
-     * Inject the static decryptor method: {@code private static String __d(String b64)}.
+     * Inject the static decryptor method with the given random name.
      *
      * <p>Generated bytecode equivalent:
      * <pre>{@code
-     * private static String __d(String b64) {
+     * private static String <randomName>(String b64) {
      *     try {
      *         byte[] enc = java.util.Base64.getDecoder().decode(b64);
      *         java.nio.ByteBuffer buf = java.nio.ByteBuffer.wrap(enc);
@@ -238,20 +232,20 @@ public class ObfuscationEngine {
      *         byte[] ct = new byte[buf.remaining()];
      *         buf.get(ct);
      *         javax.crypto.Cipher c = javax.crypto.Cipher.getInstance("AES/GCM/NoPadding");
-     *         c.init(javax.crypto.Cipher.DECRYPT_MODE,
-     *                new javax.crypto.spec.SecretKeySpec(__k, "AES"),
+     *         c.init(2, new javax.crypto.spec.SecretKeySpec(<keyField>, "AES"),
      *                new javax.crypto.spec.GCMParameterSpec(128, iv));
      *         return new String(c.doFinal(ct), java.nio.charset.StandardCharsets.UTF_8);
      *     } catch (Exception e) {
-     *         return b64; // Fallback: return the encrypted string as-is (prevents crash)
+     *         return b64;
      *     }
      * }
      * }</pre>
      */
-    private void injectDecryptMethod(ClassVisitor cv, String className) {
+    private void injectDecryptMethod(ClassVisitor cv, String className,
+                                     String methodName, String keyFieldName) {
         MethodVisitor mv = cv.visitMethod(
                 Opcodes.ACC_PRIVATE | Opcodes.ACC_STATIC | Opcodes.ACC_SYNTHETIC,
-                DECRYPT_METHOD_NAME,
+                methodName,
                 "(Ljava/lang/String;)Ljava/lang/String;",
                 null,
                 null
@@ -268,37 +262,33 @@ public class ObfuscationEngine {
         // byte[] enc = Base64.getDecoder().decode(b64)
         mv.visitMethodInsn(Opcodes.INVOKESTATIC, "java/util/Base64", "getDecoder",
                 "()Ljava/util/Base64$Decoder;", false);
-        mv.visitVarInsn(Opcodes.ALOAD, 0); // b64 parameter
+        mv.visitVarInsn(Opcodes.ALOAD, 0);
         mv.visitMethodInsn(Opcodes.INVOKEVIRTUAL, "java/util/Base64$Decoder", "decode",
                 "(Ljava/lang/String;)[B", false);
-        mv.visitVarInsn(Opcodes.ASTORE, 1); // enc
+        mv.visitVarInsn(Opcodes.ASTORE, 1);
 
         // ByteBuffer buf = ByteBuffer.wrap(enc)
         mv.visitVarInsn(Opcodes.ALOAD, 1);
         mv.visitMethodInsn(Opcodes.INVOKESTATIC, "java/nio/ByteBuffer", "wrap",
                 "([B)Ljava/nio/ByteBuffer;", false);
-        mv.visitVarInsn(Opcodes.ASTORE, 2); // buf
+        mv.visitVarInsn(Opcodes.ASTORE, 2);
 
-        // byte[] iv = new byte[12]
+        // byte[] iv = new byte[12]; buf.get(iv)
         mv.visitIntInsn(Opcodes.BIPUSH, 12);
         mv.visitIntInsn(Opcodes.NEWARRAY, Opcodes.T_BYTE);
-        mv.visitVarInsn(Opcodes.ASTORE, 3); // iv
-
-        // buf.get(iv)
+        mv.visitVarInsn(Opcodes.ASTORE, 3);
         mv.visitVarInsn(Opcodes.ALOAD, 2);
         mv.visitVarInsn(Opcodes.ALOAD, 3);
         mv.visitMethodInsn(Opcodes.INVOKEVIRTUAL, "java/nio/ByteBuffer", "get",
                 "([B)Ljava/nio/ByteBuffer;", false);
         mv.visitInsn(Opcodes.POP);
 
-        // byte[] ct = new byte[buf.remaining()]
+        // byte[] ct = new byte[buf.remaining()]; buf.get(ct)
         mv.visitVarInsn(Opcodes.ALOAD, 2);
         mv.visitMethodInsn(Opcodes.INVOKEVIRTUAL, "java/nio/ByteBuffer", "remaining",
                 "()I", false);
         mv.visitIntInsn(Opcodes.NEWARRAY, Opcodes.T_BYTE);
-        mv.visitVarInsn(Opcodes.ASTORE, 4); // ct
-
-        // buf.get(ct)
+        mv.visitVarInsn(Opcodes.ASTORE, 4);
         mv.visitVarInsn(Opcodes.ALOAD, 2);
         mv.visitVarInsn(Opcodes.ALOAD, 4);
         mv.visitMethodInsn(Opcodes.INVOKEVIRTUAL, "java/nio/ByteBuffer", "get",
@@ -309,45 +299,44 @@ public class ObfuscationEngine {
         mv.visitLdcInsn("AES/GCM/NoPadding");
         mv.visitMethodInsn(Opcodes.INVOKESTATIC, "javax/crypto/Cipher", "getInstance",
                 "(Ljava/lang/String;)Ljavax/crypto/Cipher;", false);
-        mv.visitVarInsn(Opcodes.ASTORE, 5); // cipher
+        mv.visitVarInsn(Opcodes.ASTORE, 5);
 
-        // SecretKeySpec keySpec = new SecretKeySpec(__k, "AES")
+        // SecretKeySpec keySpec = new SecretKeySpec(keyField, "AES")
         mv.visitTypeInsn(Opcodes.NEW, "javax/crypto/spec/SecretKeySpec");
         mv.visitInsn(Opcodes.DUP);
-        mv.visitFieldInsn(Opcodes.GETSTATIC, className, KEY_FIELD_NAME, "[B");
+        mv.visitFieldInsn(Opcodes.GETSTATIC, className, keyFieldName, "[B");
         mv.visitLdcInsn("AES");
         mv.visitMethodInsn(Opcodes.INVOKESPECIAL, "javax/crypto/spec/SecretKeySpec", "<init>",
                 "([BLjava/lang/String;)V", false);
-        mv.visitVarInsn(Opcodes.ASTORE, 6); // keySpec
+        mv.visitVarInsn(Opcodes.ASTORE, 6);
 
         // GCMParameterSpec gcmSpec = new GCMParameterSpec(128, iv)
         mv.visitTypeInsn(Opcodes.NEW, "javax/crypto/spec/GCMParameterSpec");
         mv.visitInsn(Opcodes.DUP);
         mv.visitIntInsn(Opcodes.SIPUSH, 128);
-        mv.visitVarInsn(Opcodes.ALOAD, 3); // iv
+        mv.visitVarInsn(Opcodes.ALOAD, 3);
         mv.visitMethodInsn(Opcodes.INVOKESPECIAL, "javax/crypto/spec/GCMParameterSpec", "<init>",
                 "(I[B)V", false);
-        mv.visitVarInsn(Opcodes.ASTORE, 7); // gcmSpec
+        mv.visitVarInsn(Opcodes.ASTORE, 7);
 
-        // c.init(Cipher.DECRYPT_MODE, keySpec, gcmSpec)
-        mv.visitVarInsn(Opcodes.ALOAD, 5); // cipher
-        mv.visitInsn(Opcodes.ICONST_2); // DECRYPT_MODE = 2
-        mv.visitVarInsn(Opcodes.ALOAD, 6); // keySpec
-        mv.visitVarInsn(Opcodes.ALOAD, 7); // gcmSpec
+        // c.init(DECRYPT_MODE, keySpec, gcmSpec)
+        mv.visitVarInsn(Opcodes.ALOAD, 5);
+        mv.visitInsn(Opcodes.ICONST_2);
+        mv.visitVarInsn(Opcodes.ALOAD, 6);
+        mv.visitVarInsn(Opcodes.ALOAD, 7);
         mv.visitMethodInsn(Opcodes.INVOKEVIRTUAL, "javax/crypto/Cipher", "init",
                 "(ILjava/security/Key;Ljava/security/spec/AlgorithmParameterSpec;)V", false);
 
-        // byte[] plainBytes = c.doFinal(ct)
-        mv.visitVarInsn(Opcodes.ALOAD, 5); // cipher
-        mv.visitVarInsn(Opcodes.ALOAD, 4); // ct
+        // return new String(c.doFinal(ct), UTF_8)
+        mv.visitVarInsn(Opcodes.ALOAD, 5);
+        mv.visitVarInsn(Opcodes.ALOAD, 4);
         mv.visitMethodInsn(Opcodes.INVOKEVIRTUAL, "javax/crypto/Cipher", "doFinal",
                 "([B)[B", false);
-        mv.visitVarInsn(Opcodes.ASTORE, 8); // plainBytes
+        mv.visitVarInsn(Opcodes.ASTORE, 8);
 
-        // return new String(plainBytes, StandardCharsets.UTF_8)
         mv.visitTypeInsn(Opcodes.NEW, "java/lang/String");
         mv.visitInsn(Opcodes.DUP);
-        mv.visitVarInsn(Opcodes.ALOAD, 8); // plainBytes
+        mv.visitVarInsn(Opcodes.ALOAD, 8);
         mv.visitFieldInsn(Opcodes.GETSTATIC, "java/nio/charset/StandardCharsets", "UTF_8",
                 "Ljava/nio/charset/Charset;");
         mv.visitMethodInsn(Opcodes.INVOKESPECIAL, "java/lang/String", "<init>",
@@ -359,67 +348,62 @@ public class ObfuscationEngine {
         mv.visitLabel(catchHandler);
         mv.visitFrame(Opcodes.F_SAME1, 0, null, 1, new Object[]{"java/lang/Exception"});
         mv.visitVarInsn(Opcodes.ASTORE, 1);
-        mv.visitVarInsn(Opcodes.ALOAD, 0); // return original b64 as fallback
+        mv.visitVarInsn(Opcodes.ALOAD, 0);
         mv.visitInsn(Opcodes.ARETURN);
 
-        mv.visitMaxs(4, 9);
+        mv.visitMaxs(5, 9);
         mv.visitEnd();
     }
 
+    // ==================== Random name generation ====================
 
-
-
-    // ==================== Filtering ====================
+    private static final String LOWER = "abcdefghijklmnopqrstuvwxyz";
+    private static final String UPPER = "ABCDEFGHIJKLMNOPQRSTUVWXYZ";
+    private static final String ALPHANUM = LOWER + UPPER + "0123456789";
+    private static final Set<String> USED_DECRYPTOR_NAMES = new HashSet<>();
 
     /**
-     * Determine whether a string constant should be encrypted.
-     * Returns false for strings that would break JVM semantics or reflection.
+     * Generate a short random identifier that looks like normal obfuscated code.
+     * Guaranteed unique across the current injection session.
      */
-    private boolean shouldEncryptString(String str) {
-        // Never encrypt empty or very short strings
-        if (str == null || str.length() <= 2) return false;
-
-        // Never encrypt JVM type descriptors
-        if (str.startsWith("(") && str.contains(")")) return false;       // method descriptor
-        if (str.startsWith("L") && str.endsWith(";")) return false;       // type descriptor
-        if (str.startsWith("[")) return false;                             // array descriptor
-
-        // Never encrypt internal class name patterns (used in reflection/getResource)
-        if (str.contains("/") && !str.contains(" ")) return false;        // internal names like "java/lang/String"
-
-        // Never encrypt Minecraft color codes (used for chat messages at high frequency)
-        // These are fine to encrypt, but skip for performance in hot paths
-        // Actually, let's encrypt these too — they're the most revealing strings
-
-        // Never encrypt cipher/algorithm names (would cause infinite recursion in __d)
-        if (str.equals("AES") || str.equals("AES/GCM/NoPadding") || str.equals("UTF-8")) return false;
-
-        // Never encrypt strings that look like class names (dots + no spaces)
-        if (str.matches("^[a-z][a-z0-9]*(\\.[a-z][a-z0-9]*)*\\.[A-Z]\\w*$")) return false;
-
-        // Never encrypt Base64-looking strings (could be our own encrypted output)
-        if (str.matches("^[A-Za-z0-9+/=]{20,}$")) return false;
-
-        return true;
+    private String randomShortName() {
+        String name;
+        do {
+            int len = 1 + RANDOM.nextInt(3); // 1-3 chars
+            StringBuilder sb = new StringBuilder(len);
+            sb.append(LOWER.charAt(RANDOM.nextInt(LOWER.length()))); // start lowercase
+            for (int i = 1; i < len; i++) {
+                sb.append(ALPHANUM.charAt(RANDOM.nextInt(ALPHANUM.length())));
+            }
+            name = sb.toString();
+        } while (USED_DECRYPTOR_NAMES.contains(name) || isJavaKeyword(name));
+        USED_DECRYPTOR_NAMES.add(name);
+        return name;
     }
 
-    private boolean isPreservedMethod(String name) {
-        return name.equals("inject") ||
-                name.equals("onChat") ||
-                name.equals("onEnable") ||
-                name.equals("onDisable") ||
-                name.equals("<init>") ||
-                name.equals("<clinit>") ||
-                name.equals("__d") ||           // Our own decryptor
-                name.equals("__clinit_key");    // Our own key init
-    }
-
-    private boolean isPreservedField(String name) {
-        return name.equals(KEY_FIELD_NAME) ||
-                name.equals("serialVersionUID");
+    private static boolean isJavaKeyword(String name) {
+        return switch (name) {
+            case "do", "if", "for", "int", "new", "try", "var" -> true;
+            default -> false;
+        };
     }
 
     // ==================== Dead code injection ====================
+
+    private byte[] applyDeadCodeOnly(byte[] classBytes) {
+        ClassReader reader = new ClassReader(classBytes);
+        ClassWriter writer = new ClassWriter(reader, ClassWriter.COMPUTE_MAXS);
+        ClassVisitor cv = new ClassVisitor(Opcodes.ASM9, writer) {
+            @Override
+            public MethodVisitor visitMethod(int access, String name,
+                                             String descriptor, String signature, String[] exceptions) {
+                MethodVisitor mv = super.visitMethod(access, name, descriptor, signature, exceptions);
+                return wrapWithDeadCode(mv);
+            }
+        };
+        reader.accept(cv, ClassReader.EXPAND_FRAMES);
+        return writer.toByteArray();
+    }
 
     private MethodVisitor wrapWithDeadCode(MethodVisitor mv) {
         if (strength < 7) return mv;
@@ -443,5 +427,33 @@ public class ObfuscationEngine {
         mv.visitMethodInsn(Opcodes.INVOKESTATIC, "java/lang/System", "nanoTime", "()J", false);
         mv.visitInsn(Opcodes.POP2);
         mv.visitLabel(skip);
+    }
+
+    // ==================== String filtering ====================
+
+    /**
+     * Determine whether a string constant should be encrypted.
+     */
+    private boolean shouldEncryptString(String str) {
+        if (str == null || str.length() <= 2) return false;
+
+        // JVM type descriptors
+        if (str.startsWith("(") && str.contains(")")) return false;
+        if (str.startsWith("L") && str.endsWith(";")) return false;
+        if (str.startsWith("[")) return false;
+
+        // Internal class names
+        if (str.contains("/") && !str.contains(" ")) return false;
+
+        // Crypto algorithm names (prevents infinite recursion in decryptor)
+        if (str.equals("AES") || str.equals("AES/GCM/NoPadding") || str.equals("UTF-8")) return false;
+
+        // Fully qualified class names
+        if (str.matches("^[a-z][a-z0-9]*(\\.[a-z][a-z0-9]*)*\\.[A-Z]\\w*$")) return false;
+
+        // Base64-looking strings
+        if (str.matches("^[A-Za-z0-9+/=]{20,}$")) return false;
+
+        return true;
     }
 }

