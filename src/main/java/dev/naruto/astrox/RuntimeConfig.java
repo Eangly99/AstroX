@@ -43,5 +43,5 @@ public class RuntimeConfig {
 
     // Batch processing
     public static volatile String targetDir = null;
-    public static volatile int threadCount = Runtime.getRuntime().availableProcessors();
+    public static volatile int threadCount = 4;
 }
