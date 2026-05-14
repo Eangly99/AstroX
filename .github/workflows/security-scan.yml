@@ -36,10 +36,13 @@ jobs:
           if-no-files-found: ignore
 
       - name: OWASP Dependency Check
+        env:
+          NVD_API_KEY: ${{ secrets.NVD_API_KEY }}
         run: |
           mvn org.owasp:dependency-check-maven:9.0.9:check \
             -DfailBuildOnCVSS=9 \
             -DsuppressionsFile=.github/owasp-suppressions.xml \
+            -DnvdApiKey="$NVD_API_KEY" \
             || true
 
       - name: Upload OWASP Report
