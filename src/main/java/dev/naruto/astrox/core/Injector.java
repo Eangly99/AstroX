@@ -85,9 +85,10 @@ public class Injector {
         }
 
         try (JarFile jarFile = new JarFile(inputJar);
-             JarOutputStream jos = new JarOutputStream(
-                     new FileOutputStream(outputJar),
-                     jarFile.getManifest())) {
+             OutputStream os = new FileOutputStream(outputJar);
+             JarOutputStream jos = jarFile.getManifest() != null ? 
+                     new JarOutputStream(os, jarFile.getManifest()) : 
+                     new JarOutputStream(os)) {
 
             // Copy all existing entries
             jarFile.stream().forEach(entry -> {

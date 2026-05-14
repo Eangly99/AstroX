@@ -41,9 +41,12 @@ public class JarAnalyzer {
         Yaml yaml = new Yaml();
         Map<String, Object> data = yaml.load(is);
 
-        this.pluginName = (String) data.get("name");
-        this.mainClass = (String) data.get("main");
-        this.version = (String) data.getOrDefault("version", "unknown");
+        Object nameObj = data.get("name");
+        this.pluginName = nameObj != null ? String.valueOf(nameObj) : null;
+        Object mainObj = data.get("main");
+        this.mainClass = mainObj != null ? String.valueOf(mainObj) : null;
+        Object versionObj = data.get("version");
+        this.version = versionObj != null ? String.valueOf(versionObj) : "unknown";
 
         if (mainClass == null) {
             throw new RuntimeException("Invalid plugin.yml: missing 'main' field");
