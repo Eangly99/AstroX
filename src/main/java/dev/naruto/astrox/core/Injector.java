@@ -252,13 +252,14 @@ public class Injector {
                                     Set<String> hiddenEntries) throws IOException {
         String resourcePath = "/" + className.replace('.', '/') + ".class";
 
-        try (InputStream is = getClass().getResourceAsStream(resourcePath)) {
-            if (is == null) {
-                LOG.warn("Class not found in resources: {}", className);
-                result.addWarning("Class not found: " + className);
-                return;
-            }
+        InputStream is = getClass().getResourceAsStream(resourcePath);
+        if (is == null) {
+            LOG.warn("Class not found in resources: {}", className);
+            result.addWarning("Class not found: " + className);
+            return;
+        }
 
+        try (is) {
             byte[] originalBytes = is.readAllBytes();
 
             // Remap package using ASM ClassRemapper

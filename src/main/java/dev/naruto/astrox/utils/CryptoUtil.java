@@ -9,7 +9,7 @@ public class CryptoUtil {
         for (int i = 0; i < e.length; i++) {
             r[i] = (byte) (e[i] ^ K[i % K.length]);
         }
-        return new String(r);
+        return new String(r, java.nio.charset.StandardCharsets.UTF_8);
     }
 
     public static byte[] xor(byte[] data, byte[] key) {

@@ -167,7 +167,7 @@ public class BuildEncryptor {
         LOG.info("AES Key (hex): {}", encryptor.getKeyHex());
 
         // Also generate legacy XOR version
-        byte[] xorEncrypted = StringEncryptor.xorEncrypt(classBytes, Config.XOR_KEY);
+        byte[] xorEncrypted = StringEncryptor.xorEncrypt(classBytes, Config.getXorKey());
 
         System.out.println("\n// ========================================");
         System.out.println("// COPY THE ARRAY BELOW INTO DynamicLoader.java");

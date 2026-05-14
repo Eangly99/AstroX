@@ -49,7 +49,7 @@ public class AgentDetector {
                     }
                 }
             }
-        } catch (Exception e) {
+        } catch (RuntimeException e) {
             // SecurityManager might block access — treat as suspicious
             found.add("SecurityManager blocked MXBean access");
         }
@@ -74,6 +74,10 @@ public class AgentDetector {
      * @param detectedAgents list of detected agent argument strings
      */
     public record DetectionResult(boolean agentsDetected, List<String> detectedAgents) {
+        public DetectionResult {
+            detectedAgents = java.util.Collections.unmodifiableList(new ArrayList<>(detectedAgents));
+        }
+
         /**
          * Whether the payload should enter safe mode.
          */

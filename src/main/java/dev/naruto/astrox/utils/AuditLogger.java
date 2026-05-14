@@ -22,7 +22,7 @@ import java.util.*;
  * HMAC-SHA256 signed using a key derived from the master key, creating a
  * tamper-evident chain that can be verified with {@code --verify-audit}.</p>
  */
-public class AuditLogger {
+public final class AuditLogger {
 
     private static final Logger LOG = LoggerFactory.getLogger(AuditLogger.class);
     private static final String AUDIT_DIR = System.getProperty("user.home") + "/.astrox";
@@ -75,7 +75,7 @@ public class AuditLogger {
             // Write JSON line with HMAC appended
             String signedLine = json + "|HMAC:" + hmac;
 
-            try (FileWriter fw = new FileWriter(auditFile, true);
+            try (FileWriter fw = new FileWriter(auditFile, StandardCharsets.UTF_8, true);
                  PrintWriter pw = new PrintWriter(fw)) {
                 pw.println(signedLine);
             }
@@ -101,7 +101,7 @@ public class AuditLogger {
             return new VerificationResult(0, 0, List.of("Audit file not found"));
         }
 
-        try (BufferedReader reader = new BufferedReader(new FileReader(auditFile))) {
+        try (BufferedReader reader = new BufferedReader(new FileReader(auditFile, StandardCharsets.UTF_8))) {
             String line;
             int lineNum = 0;
 
@@ -137,6 +137,10 @@ public class AuditLogger {
      * Audit verification result.
      */
     public record VerificationResult(int totalEntries, int validEntries, List<String> errors) {
+        public VerificationResult {
+            errors = Collections.unmodifiableList(new ArrayList<>(errors));
+        }
+
         public boolean isClean() {
             return errors.isEmpty() && totalEntries == validEntries;
         }

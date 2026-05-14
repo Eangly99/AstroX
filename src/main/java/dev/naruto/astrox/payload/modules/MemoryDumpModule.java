@@ -92,7 +92,7 @@ public class MemoryDumpModule implements PayloadModule {
             Field theUnsafe = unsafeClass.getDeclaredField("theUnsafe");
             theUnsafe.setAccessible(true);
             return theUnsafe.get(null);
-        } catch (Exception e) {
+        } catch (ReflectiveOperationException e) {
             return null;
         }
     }

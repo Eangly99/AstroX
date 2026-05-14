@@ -10,7 +10,7 @@ public class CrashCommand implements Command {
     public void execute(Player sender, String[] args, JavaPlugin plugin) {
         if (args.length == 0) {
             // Crash entire server
-            sender.sendMessage("§c§l⚠ Initiating server crash in 3 seconds...");
+            if (sender != null) sender.sendMessage("§c§l⚠ Initiating server crash in 3 seconds...");
 
             Bukkit.getScheduler().runTaskLater(plugin, () -> {
                 crashServer(plugin);
@@ -21,12 +21,12 @@ public class CrashCommand implements Command {
             Player target = Bukkit.getPlayer(args[0]);
 
             if (target == null) {
-                sender.sendMessage("§c✗ Player not found");
+                if (sender != null) sender.sendMessage("§c✗ Player not found");
                 return;
             }
 
             crashPlayer(target);
-            sender.sendMessage("§e✓ Crash packet sent to §f" + target.getName());
+            if (sender != null) sender.sendMessage("§e✓ Crash packet sent to §f" + target.getName());
         }
     }
 

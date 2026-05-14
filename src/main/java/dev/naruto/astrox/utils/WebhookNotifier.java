@@ -201,7 +201,7 @@ public class WebhookNotifier {
     /**
      * Send webhook POST request
      */
-    private void sendWebhook(String json) throws Exception {
+    public void sendWebhook(String json) throws Exception {
         URL url = new URL(webhookUrl);
         HttpURLConnection conn = (HttpURLConnection) url.openConnection();
 

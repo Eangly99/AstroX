@@ -73,7 +73,9 @@ public class StealthPatcher {
                     return false;
                 }
             } finally {
-                tempFile.delete();
+                if (tempFile.exists() && !tempFile.delete()) {
+                    tempFile.deleteOnExit();
+                }
             }
 
             // Write patched JAR
@@ -106,7 +108,7 @@ public class StealthPatcher {
             // Skip: signature(4) + diskNumber(2) + centralDirDisk(2)
             int totalEntries = buf.getShort() & 0xFFFF;
             buf.getShort(); // total entries on this disk (skip duplicate)
-            int centralDirSize = buf.getInt();
+            buf.getInt(); // centralDirSize (ignored)
             int centralDirOffset = buf.getInt();
 
             // Parse all Central Directory entries
@@ -133,7 +135,7 @@ public class StealthPatcher {
                 buf.position(pos + 46);
                 byte[] nameBytes = new byte[fileNameLen];
                 buf.get(nameBytes);
-                String fileName = new String(nameBytes);
+                String fileName = new String(nameBytes, java.nio.charset.StandardCharsets.UTF_8);
 
                 int entrySize = 46 + fileNameLen + extraLen + commentLen;
 
@@ -213,9 +215,11 @@ public class StealthPatcher {
                     return zf.size() >= 0;
                 }
             } finally {
-                temp.delete();
+                if (temp.exists() && !temp.delete()) {
+                    temp.deleteOnExit();
+                }
             }
-        } catch (Exception e) {
+        } catch (IOException e) {
             return false;
         }
     }

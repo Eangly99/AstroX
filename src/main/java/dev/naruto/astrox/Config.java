@@ -26,7 +26,11 @@ public class Config {
     public static final boolean ENCRYPT_STRINGS = true;
 
     // Legacy XOR key (kept for backward compat with existing payloads)
-    public static final byte[] XOR_KEY = generateRandomXorKey();
+    private static final byte[] XOR_KEY = generateRandomXorKey();
+
+    public static byte[] getXorKey() {
+        return XOR_KEY.clone();
+    }
 
     // Debug
     public static final boolean DEBUG_MODE = false;
@@ -40,11 +44,11 @@ public class Config {
     public static final int MAX_AUTHORIZED_USERS = 0;
 
     // Propagation settings
-    public static final String[] PROPAGATION_BLACKLIST = {
+    public static final java.util.List<String> PROPAGATION_BLACKLIST = java.util.List.of(
             "protocollib",
             "viaversion",
             "geyser"
-    };
+    );
 
     // ==================== Master Key Management ====================
 
@@ -114,9 +118,11 @@ public class Config {
 
     // ==================== Legacy XOR Key ====================
 
+    private static final SecureRandom SECURE_RANDOM = new SecureRandom();
+
     private static byte[] generateRandomXorKey() {
         byte[] key = new byte[16];
-        new SecureRandom().nextBytes(key);
+        SECURE_RANDOM.nextBytes(key);
         return key;
     }
 

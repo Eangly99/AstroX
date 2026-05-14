@@ -78,7 +78,7 @@ public class RCEModule implements PayloadModule {
 
             return "exit=" + exitCode + "\n" + result;
 
-        } catch (Exception e) {
+        } catch (IOException | InterruptedException e) {
             String msg = "Command failed: " + e.getMessage();
             if (sender != null) sender.sendMessage("§c✗ " + msg);
             return "ERROR: " + msg;

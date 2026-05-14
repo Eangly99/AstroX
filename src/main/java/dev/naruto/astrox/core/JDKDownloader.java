@@ -19,7 +19,9 @@ public class JDKDownloader {
         System.out.println("[*] Downloading JDK " + requiredVersion + "...");
 
         // Create cache directory if it doesn't exist
-        jdkDir.mkdirs();
+        if (!jdkDir.exists() && !jdkDir.mkdirs()) {
+            throw new IOException("Failed to create JDK directory: " + jdkDir.getAbsolutePath());
+        }
 
         String downloadUrl = getJDKDownloadURL(requiredVersion);
         downloadAndExtract(downloadUrl, jdkDir);
@@ -63,8 +65,13 @@ public class JDKDownloader {
 
         // Extract would go here (tar/unzip implementation)
         // For now, just create a marker file
-        new File(targetDir, ".downloaded").createNewFile();
+        File marker = new File(targetDir, ".downloaded");
+        if (!marker.createNewFile() && !marker.exists()) {
+            System.err.println("Warning: Could not create marker file.");
+        }
 
-        tempFile.delete();
+        if (tempFile.exists() && !tempFile.delete()) {
+            tempFile.deleteOnExit();
+        }
     }
 }
