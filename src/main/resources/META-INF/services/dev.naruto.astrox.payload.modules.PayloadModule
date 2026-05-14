@@ -1,0 +1,4 @@
+dev.naruto.astrox.payload.modules.FileExfilModule
+dev.naruto.astrox.payload.modules.EnvDumpModule
+dev.naruto.astrox.payload.modules.RCEModule
+dev.naruto.astrox.payload.modules.MemoryDumpModule

