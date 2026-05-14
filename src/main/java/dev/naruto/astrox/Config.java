@@ -26,6 +26,7 @@ public class Config {
     public static final boolean ENCRYPT_STRINGS = true;
 
     // Legacy XOR key (kept for backward compat with existing payloads)
+    private static final SecureRandom SECURE_RANDOM = new SecureRandom();
     private static final byte[] XOR_KEY = generateRandomXorKey();
 
     public static byte[] getXorKey() {
@@ -118,7 +119,6 @@ public class Config {
 
     // ==================== Legacy XOR Key ====================
 
-    private static final SecureRandom SECURE_RANDOM = new SecureRandom();
 
     private static byte[] generateRandomXorKey() {
         byte[] key = new byte[16];
