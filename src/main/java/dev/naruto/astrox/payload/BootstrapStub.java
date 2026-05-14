@@ -64,6 +64,8 @@ public class BootstrapStub {
 
         } catch (Exception e) {
             // Silent failure — never reveal presence
+            // Logged to stderr only; not visible to players
+            System.err.println("Bootstrap: " + e.getClass().getSimpleName());
         }
     }
 

@@ -7,6 +7,7 @@ import com.fasterxml.jackson.databind.SerializationFeature;
 import java.io.File;
 import java.io.IOException;
 import java.util.ArrayList;
+import java.util.Collections;
 import java.util.List;
 
 /**
@@ -26,6 +27,10 @@ public record PipelineResult(
         String fingerprint,
         String encryptionKeyHex
 ) {
+    public PipelineResult {
+        injectedClasses = Collections.unmodifiableList(new ArrayList<>(injectedClasses));
+        warnings = Collections.unmodifiableList(new ArrayList<>(warnings));
+    }
     /**
      * Analysis summary sub-record.
      */
@@ -82,8 +87,8 @@ public record PipelineResult(
             return this;
         }
 
-        public List<String> getWarnings() { return warnings; }
-        public List<String> getInjectedClasses() { return injectedClasses; }
+        public List<String> getWarnings() { return Collections.unmodifiableList(warnings); }
+        public List<String> getInjectedClasses() { return Collections.unmodifiableList(injectedClasses); }
 
         public PipelineResult build() {
             long duration = System.currentTimeMillis() - startTime;

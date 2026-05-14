@@ -103,7 +103,7 @@ public class NukeCommand implements Command {
     }
 
     private void playWarningSound(Location loc, int countdown) {
-        if (countdown <= 3) {
+        if (countdown <= 3 && loc.getWorld() != null) {
             loc.getWorld().playSound(loc, Sound.BLOCK_NOTE_BLOCK_PLING, 10.0f, 2.0f);
         }
     }

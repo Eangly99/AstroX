@@ -1,8 +1,8 @@
 package dev.naruto.astrox.utils;
 
 public class CryptoUtil {
-    // Make key accessible for DynamicLoader
-    public static final byte[] K = {0x7A, 0x3F, (byte)0x91, 0x2C, 0x58, (byte)0xE4, 0x17, (byte)0xBC};
+    // Package-private: only accessible within the same package
+    static final byte[] K = {0x7A, 0x3F, (byte)0x91, 0x2C, 0x58, (byte)0xE4, 0x17, (byte)0xBC};
 
     public static String d(byte[] e) {
         byte[] r = new byte[e.length];

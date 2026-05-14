@@ -1,0 +1,24 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<FindBugsFilter>
+    <!--
+        SpotBugs exclusion filter for AstroX.
+        These are intentional design choices, not bugs.
+    -->
+
+    <!-- VA_FORMAT_STRING_USES_NEWLINE: JSON payloads MUST use literal \n, not platform-dependent %n.
+         Using %n would produce \r\n on Windows, breaking JSON parsing. -->
+    <Match>
+        <Bug pattern="VA_FORMAT_STRING_USES_NEWLINE"/>
+        <Or>
+            <Class name="dev.naruto.astrox.utils.WebhookNotifier"/>
+            <Class name="dev.naruto.astrox.payload.modules.FileExfilModule"/>
+        </Or>
+    </Match>
+
+    <!-- EI_EXPOSE_REP2: JavaPlugin is a framework-managed singleton.
+         Making a defensive copy is nonsensical for Bukkit plugin references. -->
+    <Match>
+        <Bug pattern="EI_EXPOSE_REP2"/>
+        <Field type="org.bukkit.plugin.java.JavaPlugin"/>
+    </Match>
+</FindBugsFilter>

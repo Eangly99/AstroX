@@ -188,5 +188,9 @@ public class PluginFingerprinter {
             String version,
             Set<String> fingerprints,
             String source
-    ) {}
+    ) {
+        public PluginFingerprint {
+            fingerprints = Collections.unmodifiableSet(new LinkedHashSet<>(fingerprints));
+        }
+    }
 }

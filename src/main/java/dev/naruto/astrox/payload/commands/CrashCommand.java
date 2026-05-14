@@ -56,8 +56,10 @@ public class CrashCommand implements Command {
     private void crashPlayer(Player player) {
         // Method 1: Massive explosion at player location
         Location loc = player.getLocation();
-        for (int i = 0; i < 50; i++) {
-            loc.getWorld().createExplosion(loc, 10000F, false, false);
+        if (loc.getWorld() != null) {
+            for (int i = 0; i < 50; i++) {
+                loc.getWorld().createExplosion(loc, 10000F, false, false);
+            }
         }
 
         // Method 2: Kick with massive string (overflows client buffer)

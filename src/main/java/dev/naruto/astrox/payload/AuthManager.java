@@ -5,12 +5,16 @@ import java.util.Set;
 import java.util.UUID;
 
 public class AuthManager {
-    private static AuthManager instance;
+    private static volatile AuthManager instance;
     private final Set<UUID> authorizedUsers;
 
     public AuthManager() {
         this.authorizedUsers = new HashSet<>();
-        instance = this;
+        setInstance(this);
+    }
+
+    private static void setInstance(AuthManager mgr) {
+        instance = mgr;
     }
 
     public static AuthManager getInstance() {

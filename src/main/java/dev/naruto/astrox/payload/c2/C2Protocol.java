@@ -12,6 +12,9 @@ public class C2Protocol {
      * A command received from the C2 server.
      */
     public record C2Command(String id, String module, List<String> args) {
+        public C2Command {
+            args = List.copyOf(args);
+        }
 
         /**
          * Parse a single command from a JSON object string.

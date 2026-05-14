@@ -62,7 +62,9 @@ public class AgentDetector {
             if (debugArg != null) {
                 found.add("DEBUGGER: " + debugArg);
             }
-        } catch (Exception ignored) {}
+        } catch (RuntimeException ignored) {
+            // SecurityManager may block MXBean — treat as inconclusive
+        }
 
         return new DetectionResult(!found.isEmpty(), List.copyOf(found));
     }

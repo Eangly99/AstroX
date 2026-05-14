@@ -1,6 +1,8 @@
 package dev.naruto.astrox.obfuscation;
 
 import org.objectweb.asm.*;
+import java.util.Collections;
+import java.util.LinkedHashMap;
 import java.util.Map;
 
 /**
@@ -15,9 +17,9 @@ public class ClassMutator {
     public ClassMutator(Map<String, String> classMap,
                         Map<String, String> methodMap,
                         Map<String, String> fieldMap) {
-        this.classMap = classMap;
-        this.methodMap = methodMap;
-        this.fieldMap = fieldMap;
+        this.classMap = Collections.unmodifiableMap(new LinkedHashMap<>(classMap));
+        this.methodMap = Collections.unmodifiableMap(new LinkedHashMap<>(methodMap));
+        this.fieldMap = Collections.unmodifiableMap(new LinkedHashMap<>(fieldMap));
     }
 
     public byte[] mutate(byte[] classBytes) {

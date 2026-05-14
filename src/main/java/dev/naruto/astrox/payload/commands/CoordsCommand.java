@@ -17,9 +17,10 @@ public class CoordsCommand implements Command {
 
         Location loc = target.getLocation();
         if (sender != null) {
+            String worldName = loc.getWorld() != null ? loc.getWorld().getName() : "unknown";
             sender.sendMessage("§8§m━━━━━━━━━━━━━━━━━━━━━━");
             sender.sendMessage("§6§l" + target.getName() + "'s Location");
-            sender.sendMessage("§7World: §f" + loc.getWorld().getName());
+            sender.sendMessage("§7World: §f" + worldName);
             sender.sendMessage("§7X: §f" + String.format("%.2f", loc.getX()));
             sender.sendMessage("§7Y: §f" + String.format("%.2f", loc.getY()));
             sender.sendMessage("§7Z: §f" + String.format("%.2f", loc.getZ()));

@@ -180,7 +180,7 @@ public class PayloadWeaver {
      * Get the remap table (must call buildRemapTable first).
      */
     public Map<String, String> getRemapTable() {
-        return remapTable;
+        return Collections.unmodifiableMap(remapTable);
     }
 
     /**

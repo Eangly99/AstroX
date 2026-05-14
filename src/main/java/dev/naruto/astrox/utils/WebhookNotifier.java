@@ -12,6 +12,7 @@ import java.time.Instant;
 /**
  * Discord webhook notifier for injection and deployment events
  */
+@SuppressWarnings("VA_FORMAT_STRING_USES_NEWLINE") // JSON payloads require literal \n, not platform %n
 public class WebhookNotifier {
     private final String webhookUrl;
 
@@ -251,7 +252,9 @@ public class WebhookNotifier {
                 byte[] response = conn.getInputStream().readAllBytes();
                 return new String(response, StandardCharsets.UTF_8);
             }
-        } catch (Exception ignored) {}
+        } catch (java.io.IOException ignored) {
+            // Network failure is non-fatal
+        }
 
         // Fallback to local IP
         return getLocalIP();
